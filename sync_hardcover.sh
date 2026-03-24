@@ -82,11 +82,8 @@ on_run() {
         sleep 8
     fi
 
-    echo "🌐 Searching Hardcover..."
+    echo "🌐 Searching Hardcover (Exact Match)..."
 
-    # Hardcover disables `_ilike` operators on their GraphQL server for performance.
-    # We must use exact matching (`_eq`). Because side-loaded book titles can be messy,
-    # we take just the first few words of the title to try and get a match.
     SHORT_TITLE=$(echo "$CLEAN_TITLE" | awk '{print $1" "$2}')
     
     SEARCH_QUERY="{\"query\": \"query FindBook { books(where: { _or: [ { identifiers: { identifier: { _eq: \\\"$ASIN\\\" } } }, { title: { _eq: \\\"$CLEAN_TITLE\\\" } }, { title: { _eq: \\\"$SHORT_TITLE\\\" } } ] }, limit: 1) { id title } }\"}"
@@ -94,8 +91,33 @@ on_run() {
     SEARCH_RESPONSE=$(gql_request "$SEARCH_QUERY")
     
     HC_BOOK_ID=$(echo "$SEARCH_RESPONSE" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-    # Extract the Hardcover title string
     HC_TITLE=$(echo "$SEARCH_RESPONSE" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p')
+
+    # If exact match fails, fallback to Hardcover's custom fuzzy search action
+    if [ -z "$HC_BOOK_ID" ]; then
+        echo "🌐 Falling back to Fuzzy Search..."
+        
+        # Hardcover's search action takes a string and returns a stringified JSON array in `results`
+        FUZZY_QUERY="{\"query\": \"query FuzzySearch { search(query: \\\"$SHORT_TITLE $CLEAN_AUTHOR\\\", query_type: Book, per_page: 1, page: 1) { results } }\"}"
+        FUZZY_RESPONSE=$(gql_request "$FUZZY_QUERY")
+        
+        # The results are stringified, so "id" looks like \"id\":12345
+        HC_BOOK_ID=$(echo "$FUZZY_RESPONSE" | sed -n 's/.*\\"id\\":\([0-9]*\).*/\1/p')
+        
+        # If it failed to match with escaped quotes, try without backslashes just in case
+        if [ -z "$HC_BOOK_ID" ]; then
+            HC_BOOK_ID=$(echo "$FUZZY_RESPONSE" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+        fi
+
+        # Extract title from the stringified JSON
+        HC_TITLE=$(echo "$FUZZY_RESPONSE" | sed -n 's/.*\\"title\\":\\"([^\\"]*)\\".*/\1/p')
+        if [ -z "$HC_TITLE" ]; then
+            HC_TITLE=$(echo "$FUZZY_RESPONSE" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p')
+        fi
+        
+        # Log the fuzzy response for debugging if it still fails
+        SEARCH_RESPONSE="Exact: $SEARCH_RESPONSE | Fuzzy: $FUZZY_RESPONSE"
+    fi
 
     if [ -z "$HC_BOOK_ID" ]; then
         echo "❌ Error: Could not find book on Hardcover."
