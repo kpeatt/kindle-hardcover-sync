@@ -181,15 +181,13 @@ EOF
     # =========================================================
     # UPLOAD PROGRESS
     # =========================================================
-    # Hardcover uses Hasura, so "upsert" is done via "insert_..._one" with an "on_conflict" clause.
-    # We pass the progress_percentage as a float.
-    UPDATE_MUTATION="{\"query\": \"mutation UpdateProgress { insert_user_book_reads_one( object: { book_id: $HC_BOOK_ID, progress_percentage: $PROGRESS, status_id: 2 }, on_conflict: { constraint: user_book_reads_user_id_book_id_key, update_columns: [progress_percentage, status_id] } ) { id } }\"}"
+    # Hardcover uses a custom action `upsertReadingProgress` to handle status changes and reads
+    UPDATE_MUTATION="{\"query\": \"mutation UpdateProgress { upsertReadingProgress( bookId: $HC_BOOK_ID, percentage: $PROGRESS, statusId: 2 ) { bookId } }\"}"
 
     echo "📤 Uploading progress ($PROGRESS%)..."
     UPDATE_RESPONSE=$(gql_request "$UPDATE_MUTATION")
 
-    # Hasura returns {"data": {"insert_user_book_reads_one": {"id": ...}}} on success
-    if echo "$UPDATE_RESPONSE" | grep -q '"data"'; then
+    if echo "$UPDATE_RESPONSE" | grep -q '"bookId"'; then
         echo "✅ Successfully Synced!"
     else
         echo "❌ Sync failed. API Error."
