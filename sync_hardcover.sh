@@ -10,9 +10,10 @@ TOKEN_FILE="/mnt/us/extensions/hardcover_token.txt"
 DB_PATH="/var/local/cc.db"
 DEBUG_LOG="/mnt/us/documents/sync_debug.log"
 
-# Read token from file and strip any whitespace/newlines
+# Read token from file and strip any whitespace/newlines/carriage returns
 if [ -f "$TOKEN_FILE" ]; then
-    HC_TOKEN=$(cat "$TOKEN_FILE" | tr -d '[:space:]')
+    # Use tr to remove any spaces, tabs, newlines, and carriage returns (\r)
+    HC_TOKEN=$(cat "$TOKEN_FILE" | tr -d ' \t\n\r')
 else
     HC_TOKEN=""
 fi
