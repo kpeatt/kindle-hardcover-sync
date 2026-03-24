@@ -8,12 +8,19 @@
 # =========================================================
 HC_TOKEN="YOUR_HARDCOVER_TOKEN_HERE"
 DB_PATH="/var/local/cc.db"
+DEBUG_LOG="/mnt/us/documents/sync_debug.log"
 
 gql_request() {
   curl -s -X POST https://api.hardcover.app/v1/graphql \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $HC_TOKEN" \
     -d "$1"
+}
+
+log_debug() {
+  echo "-----------------------------------" >> "$DEBUG_LOG"
+  echo "Timestamp: $(date)" >> "$DEBUG_LOG"
+  echo "$1" >> "$DEBUG_LOG"
 }
 
 on_run() {
@@ -56,6 +63,7 @@ on_run() {
     
     if [ -z "$BOOK_DATA" ]; then
         echo "❌ Error: No recent books found."
+        log_debug "Error: No recent books found in database."
         return 1
     fi
 
@@ -110,10 +118,19 @@ EOF
 
     if [ -z "$HC_BOOK_ID" ]; then
         echo "❌ Error: Could not find book on Hardcover."
-        echo "Searched Title: '$CLEAN_TITLE'"
-        echo "Searched Author: '$CLEAN_AUTHOR'"
-        echo "Searched ASIN: '$ASIN'"
-        echo "API Response: $SEARCH_RESPONSE"
+        DEBUG_INFO=$(cat <<EOF
+Error: Book not found.
+Kindle Title: '$TITLE'
+Kindle Author: '$AUTHOR'
+Kindle ASIN: '$ASIN'
+Clean Title Search: '$CLEAN_TITLE'
+Clean Author Search: '$CLEAN_AUTHOR'
+Search Query: $SEARCH_QUERY
+API Response: $SEARCH_RESPONSE
+EOF
+)
+        log_debug "$DEBUG_INFO"
+        echo "Debug info saved to documents/sync_debug.log"
         return 1
     fi
 
