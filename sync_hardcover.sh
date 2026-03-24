@@ -84,31 +84,9 @@ on_run() {
 
     echo "🌐 Searching Hardcover..."
 
-    # Notice we are now explicitly asking Hardcover to return the `title` as well as the `id`
-    SEARCH_QUERY=$(cat <<EOF
-{
-  "query": "query FindBook { 
-    books(
-      where: { 
-        _or: [ 
-          { identifiers: { identifier: { _eq: \"$ASIN\" } } }, 
-          { 
-            _and: [
-              { title: { _ilike: \"%${CLEAN_TITLE}%\" } },
-              { contributions: { author: { name: { _ilike: \"%${CLEAN_AUTHOR}%\" } } } }
-            ]
-          } 
-        ] 
-      }, 
-      limit: 1
-    ) { 
-      id 
-      title
-    } 
-  }"
-}
-EOF
-)
+    # Use jq (if available) or careful string construction for valid JSON
+    # GraphQL string matching requires variables to be properly escaped
+    SEARCH_QUERY="{\"query\": \"query FindBook { books(where: { _or: [ { identifiers: { identifier: { _eq: \\\"$ASIN\\\" } } }, { _and: [ { title: { _ilike: \\\"%$CLEAN_TITLE%\\\" } }, { contributions: { author: { name: { _ilike: \\\"%$CLEAN_AUTHOR%\\\" } } } } ] } ] }, limit: 1) { id title } }\"}"
 
     SEARCH_RESPONSE=$(gql_request "$SEARCH_QUERY")
     
@@ -178,26 +156,7 @@ EOF
     # =========================================================
     # UPLOAD PROGRESS
     # =========================================================
-    UPDATE_MUTATION=$(cat <<EOF
-{
-  "query": "mutation UpdateProgress {
-    upsert_user_book_reads(
-      object: { 
-        book_id: $HC_BOOK_ID, 
-        progress_percentage: $PROGRESS,
-        status_id: 2
-      },
-      on_conflict: { 
-        constraint: user_book_reads_user_id_book_id_key, 
-        update_columns: [progress_percentage, status_id] 
-      }
-    ) {
-      id
-    }
-  }"
-}
-EOF
-)
+    UPDATE_MUTATION="{\"query\": \"mutation UpdateProgress { upsert_user_book_reads( object: { book_id: $HC_BOOK_ID, progress_percentage: $PROGRESS, status_id: 2 }, on_conflict: { constraint: user_book_reads_user_id_book_id_key, update_columns: [progress_percentage, status_id] } ) { id } }\"}"
 
     echo "📤 Uploading progress ($PROGRESS%)..."
     UPDATE_RESPONSE=$(gql_request "$UPDATE_MUTATION")
