@@ -84,9 +84,12 @@ on_run() {
 
     echo "🌐 Searching Hardcover..."
 
-    # Use jq (if available) or careful string construction for valid JSON
-    # GraphQL string matching requires variables to be properly escaped
-    SEARCH_QUERY="{\"query\": \"query FindBook { books(where: { _or: [ { identifiers: { identifier: { _eq: \\\"$ASIN\\\" } } }, { _and: [ { title: { _ilike: \\\"%$CLEAN_TITLE%\\\" } }, { contributions: { author: { name: { _ilike: \\\"%$CLEAN_AUTHOR%\\\" } } } } ] } ] }, limit: 1) { id title } }\"}"
+    # Hardcover disables `_ilike` operators on their GraphQL server for performance.
+    # We must use exact matching (`_eq`). Because side-loaded book titles can be messy,
+    # we take just the first few words of the title to try and get a match.
+    SHORT_TITLE=$(echo "$CLEAN_TITLE" | awk '{print $1" "$2}')
+    
+    SEARCH_QUERY="{\"query\": \"query FindBook { books(where: { _or: [ { identifiers: { identifier: { _eq: \\\"$ASIN\\\" } } }, { title: { _eq: \\\"$CLEAN_TITLE\\\" } }, { title: { _eq: \\\"$SHORT_TITLE\\\" } } ] }, limit: 1) { id title } }\"}"
 
     SEARCH_RESPONSE=$(gql_request "$SEARCH_QUERY")
     
