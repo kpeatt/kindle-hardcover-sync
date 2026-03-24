@@ -19,7 +19,28 @@ gql_request() {
 on_run() {
     echo "🔍 Reading Kindle Database..."
     
-    BOOK_DATA=$(sqlite3 "$DB_PATH" "SELECT p_title, p_author, p_percentFinished, p_asin FROM Entries WHERE p_type = 'EBOK' AND p_percentFinished > 0 ORDER BY p_lastAccess DESC LIMIT 1;")
+    # Check database schema to support both old (<5.16) and new (5.16+) firmware
+    COLS=$(sqlite3 "$DB_PATH" "PRAGMA table_info(Entries);")
+    
+    if echo "$COLS" | grep -q "|p_title|"; then
+        # Old schema
+        QUERY="SELECT p_title, p_author, p_percentFinished, p_asin FROM Entries WHERE p_type = 'EBOK' AND p_percentFinished > 0 ORDER BY p_lastAccess DESC LIMIT 1;"
+    else
+        # New 5.16+ schema
+        TITLE_COL=$(echo "$COLS" | grep -o 'p_titles_0_[a-z]*' | head -n 1)
+        AUTHOR_COL=$(echo "$COLS" | grep -o 'p_credits_0_[a-z]*' | head -n 1)
+        ASIN_COL="p_cdeKey"
+        ACCESS_COL=$(echo "$COLS" | grep -o 'p_lastAccess[a-zA-Z]*' | head -n 1)
+        
+        # Fallback if empty (some firmware versions vary)
+        [ -z "$TITLE_COL" ] && TITLE_COL="p_titles_0_name"
+        [ -z "$AUTHOR_COL" ] && AUTHOR_COL="p_credits_0_name"
+        [ -z "$ACCESS_COL" ] && ACCESS_COL="p_lastAccessTime"
+        
+        QUERY="SELECT $TITLE_COL, $AUTHOR_COL, p_percentFinished, $ASIN_COL FROM Entries WHERE p_cdeType = 'EBOK' AND p_percentFinished > 0 ORDER BY $ACCESS_COL DESC LIMIT 1;"
+    fi
+
+    BOOK_DATA=$(sqlite3 "$DB_PATH" "$QUERY")
     
     if [ -z "$BOOK_DATA" ]; then
         echo "❌ Error: No recent books found."
