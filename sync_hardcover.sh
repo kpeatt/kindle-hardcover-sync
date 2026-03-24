@@ -181,14 +181,25 @@ EOF
     # =========================================================
     # UPLOAD PROGRESS
     # =========================================================
-    UPDATE_MUTATION="{\"query\": \"mutation UpdateProgress { upsert_user_book_reads( object: { book_id: $HC_BOOK_ID, progress_percentage: $PROGRESS, status_id: 2 }, on_conflict: { constraint: user_book_reads_user_id_book_id_key, update_columns: [progress_percentage, status_id] } ) { id } }\"}"
+    # Hardcover uses Hasura, so "upsert" is done via "insert_..._one" with an "on_conflict" clause.
+    # We pass the progress_percentage as a float.
+    UPDATE_MUTATION="{\"query\": \"mutation UpdateProgress { insert_user_book_reads_one( object: { book_id: $HC_BOOK_ID, progress_percentage: $PROGRESS, status_id: 2 }, on_conflict: { constraint: user_book_reads_user_id_book_id_key, update_columns: [progress_percentage, status_id] } ) { id } }\"}"
 
     echo "📤 Uploading progress ($PROGRESS%)..."
     UPDATE_RESPONSE=$(gql_request "$UPDATE_MUTATION")
 
-    if echo "$UPDATE_RESPONSE" | grep -q "id"; then
+    # Hasura returns {"data": {"insert_user_book_reads_one": {"id": ...}}} on success
+    if echo "$UPDATE_RESPONSE" | grep -q '"data"'; then
         echo "✅ Successfully Synced!"
     else
         echo "❌ Sync failed. API Error."
+        DEBUG_INFO=$(cat <<EOF
+Update Failed.
+Mutation: $UPDATE_MUTATION
+API Response: $UPDATE_RESPONSE
+EOF
+)
+        log_debug "$DEBUG_INFO"
+        echo "Debug info saved to documents/sync_debug.log"
     fi
 }
