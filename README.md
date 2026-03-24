@@ -18,9 +18,9 @@ A native scriptlet for jailbroken Amazon Kindle e-readers that automatically syn
 
 1. Generate an API token from your [Hardcover Account Settings](https://hardcover.app/account/api). (Click "Create Token" or "Personal Access Token" to get a long-lived token, do not copy it from your browser's network tab).
 2. Download or clone `sync_hardcover.sh`.
-3. Create a plain text file named `hardcover_token` (with **no file extension**) on your computer and paste your API token directly inside it (no spaces or extra lines).
+3. Create a plain text file named `hardcover_token.txt` on your computer and paste your API token directly inside it (no spaces or extra lines).
 4. Connect your Kindle to your computer via USB.
-5. Copy the `hardcover_token` file into the **root** of your Kindle drive (e.g., right next to the `documents` folder, not inside it). This hides it from your Kindle Library.
+5. Copy the `hardcover_token.txt` file into the **`extensions`** folder on your Kindle drive. This prevents the Kindle's book indexer from crashing or showing the token as a blank book.
 6. Copy the `sync_hardcover.sh` scriptlet into your Kindle's `/documents` folder.
 7. Eject your Kindle. 
 

@@ -6,7 +6,7 @@
 # =========================================================
 # CONFIGURATION
 # =========================================================
-TOKEN_FILE="/mnt/us/hardcover_token"
+TOKEN_FILE="/mnt/us/extensions/hardcover_token.txt"
 DB_PATH="/var/local/cc.db"
 DEBUG_LOG="/mnt/us/documents/sync_debug.log"
 
@@ -34,8 +34,8 @@ on_run() {
     if [ -z "$HC_TOKEN" ]; then
         echo "❌ Error: Missing API Token."
         echo "Please save your token in a file named:"
-        echo "hardcover_token"
-        echo "in the root of your Kindle drive."
+        echo "hardcover_token.txt"
+        echo "inside the 'extensions' folder on your Kindle."
         return 1
     fi
 
