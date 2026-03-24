@@ -110,6 +110,10 @@ EOF
 
     if [ -z "$HC_BOOK_ID" ]; then
         echo "❌ Error: Could not find book on Hardcover."
+        echo "Searched Title: '$CLEAN_TITLE'"
+        echo "Searched Author: '$CLEAN_AUTHOR'"
+        echo "Searched ASIN: '$ASIN'"
+        echo "API Response: $SEARCH_RESPONSE"
         return 1
     fi
 
