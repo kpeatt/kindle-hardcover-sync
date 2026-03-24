@@ -54,7 +54,7 @@ on_run() {
         [ -z "$ACCESS_COL" ] && ACCESS_COL="p_lastAccessTime"
     fi
 
-    QUERY="SELECT $TITLE_COL, $AUTHOR_COL, p_percentFinished, $ASIN_COL FROM Entries WHERE $CDE_TYPE_COL = 'EBOK' AND p_percentFinished > 0 ORDER BY $ACCESS_COL DESC LIMIT 1;"
+    QUERY="SELECT $TITLE_COL, $AUTHOR_COL, p_percentFinished, $ASIN_COL FROM Entries WHERE ($CDE_TYPE_COL = 'EBOK' OR $CDE_TYPE_COL = 'PDOC') AND p_percentFinished > 0 ORDER BY $ACCESS_COL DESC LIMIT 1;"
     
     BOOK_DATA=$(sqlite3 "$DB_COPY" "$QUERY")
     
