@@ -6,9 +6,16 @@
 # =========================================================
 # CONFIGURATION
 # =========================================================
-HC_TOKEN="YOUR_HARDCOVER_TOKEN_HERE"
+TOKEN_FILE="/mnt/us/documents/hardcover_token.txt"
 DB_PATH="/var/local/cc.db"
 DEBUG_LOG="/mnt/us/documents/sync_debug.log"
+
+# Read token from file and strip any whitespace/newlines
+if [ -f "$TOKEN_FILE" ]; then
+    HC_TOKEN=$(cat "$TOKEN_FILE" | tr -d '[:space:]')
+else
+    HC_TOKEN=""
+fi
 
 gql_request() {
   curl -s -X POST https://api.hardcover.app/v1/graphql \
@@ -24,6 +31,14 @@ log_debug() {
 }
 
 on_run() {
+    if [ -z "$HC_TOKEN" ]; then
+        echo "❌ Error: Missing API Token."
+        echo "Please save your token in a file named:"
+        echo "hardcover_token.txt"
+        echo "in your Kindle's documents folder."
+        return 1
+    fi
+
     echo "🔍 Reading Kindle Database..."
     
     # Safely copy the database to avoid "database locked" errors
