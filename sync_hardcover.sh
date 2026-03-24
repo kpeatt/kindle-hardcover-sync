@@ -14,6 +14,9 @@ DEBUG_LOG="/mnt/us/documents/sync_debug.log"
 if [ -f "$TOKEN_FILE" ]; then
     # Use tr to remove any spaces, tabs, newlines, and carriage returns (\r)
     HC_TOKEN=$(cat "$TOKEN_FILE" | tr -d ' \t\n\r')
+elif [ -f "/mnt/us/hardcover_token.txt" ]; then
+    # Fallback to root directory just in case
+    HC_TOKEN=$(cat "/mnt/us/hardcover_token.txt" | tr -d ' \t\n\r')
 else
     HC_TOKEN=""
 fi
