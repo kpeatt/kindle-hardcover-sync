@@ -185,11 +185,13 @@ EOF
     fi
 
     # =========================================================
-    # GET OR CREATE USER_BOOK_ID
+    # GET OR CREATE USER_BOOK_ID & READ_ID
     # =========================================================
     echo "📚 Verifying Shelf Entry..."
-    USER_BOOK_QUERY="{\"query\": \"query { me { user_books(where: { book_id: { _eq: $HC_BOOK_ID } }) { id } } }\"}"
+    USER_BOOK_QUERY="{\"query\": \"query { me { user_books(where: { book_id: { _eq: $HC_BOOK_ID } }) { id user_book_reads(order_by: {started_at: desc}, limit: 1) { id started_at } } } }\"}"
     USER_BOOK_RESPONSE=$(gql_request "$USER_BOOK_QUERY")
+    
+    # Extract IDs using simple string parsing to avoid jq dependency on Kindle
     USER_BOOK_ID=$(echo "$USER_BOOK_RESPONSE" | sed -n 's/.*"user_books":\[{"id":\([0-9]*\).*/\1/p')
 
     if [ -z "$USER_BOOK_ID" ]; then
@@ -197,6 +199,12 @@ EOF
         CREATE_UB_MUT="{\"query\": \"mutation { insert_user_book(object: {book_id: $HC_BOOK_ID, status_id: 2}) { error user_book { id } } }\"}"
         CREATE_UB_RES=$(gql_request "$CREATE_UB_MUT")
         USER_BOOK_ID=$(echo "$CREATE_UB_RES" | sed -n 's/.*"user_book":{"id":\([0-9]*\)}.*/\1/p')
+        READ_ID=""
+        STARTED_AT=""
+    else
+        # Extract the latest read ID and started_at date (if any)
+        READ_ID=$(echo "$USER_BOOK_RESPONSE" | sed -n 's/.*"user_book_reads":\[{"id":\([0-9]*\).*/\1/p')
+        STARTED_AT=$(echo "$USER_BOOK_RESPONSE" | sed -n 's/.*"started_at":"\([^"]*\)".*/\1/p')
     fi
 
     if [ -z "$USER_BOOK_ID" ]; then
@@ -221,7 +229,19 @@ EOF
     fi
     CALCULATED_PAGES=$(awk "BEGIN {print int($PROGRESS * $HC_PAGES / 100)}")
 
-    UPDATE_MUTATION="{\"query\": \"mutation { upsert_user_book_reads(user_book_id: $USER_BOOK_ID, datesRead: [{progress_pages: $CALCULATED_PAGES}]) { error user_book_id } }\"}"
+    if [ -n "$READ_ID" ]; then
+        # Update existing read
+        if [ -n "$STARTED_AT" ]; then
+            STARTED_STR=", started_at: \\\"$STARTED_AT\\\""
+        else
+            STARTED_STR=""
+        fi
+        UPDATE_MUTATION="{\"query\": \"mutation { update_user_book_read(id: $READ_ID, object: {progress_pages: $CALCULATED_PAGES $STARTED_STR}) { error } }\"}"
+    else
+        # Create a new read entry
+        TODAY=$(date +%Y-%m-%d)
+        UPDATE_MUTATION="{\"query\": \"mutation { insert_user_book_read(user_book_id: $USER_BOOK_ID, user_book_read: {progress_pages: $CALCULATED_PAGES, started_at: \\\"$TODAY\\\"}) { error } }\"}"
+    fi
 
     echo "📤 Uploading progress ($PROGRESS% -> $CALCULATED_PAGES pages)..."
     UPDATE_RESPONSE=$(gql_request "$UPDATE_MUTATION")
