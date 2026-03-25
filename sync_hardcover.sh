@@ -250,11 +250,10 @@ EOF
 
     if [ -n "$READ_ID" ]; then
         # Update existing read
-        if [ -n "$STARTED_AT" ]; then
-            STARTED_STR=", started_at: \\\"$STARTED_AT\\\""
-        else
-            STARTED_STR=""
+        if [ -z "$STARTED_AT" ] || [ "$STARTED_AT" = "null" ]; then
+            STARTED_AT=$(date +%Y-%m-%d)
         fi
+        STARTED_STR=", started_at: \\\"$STARTED_AT\\\""
         UPDATE_MUTATION="{\"query\": \"mutation { update_user_book_read(id: $READ_ID, object: {progress_pages: $CALCULATED_PAGES $STARTED_STR}) { error } }\"}"
     else
         # Create a new read entry
