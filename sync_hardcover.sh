@@ -204,6 +204,35 @@ EOF
     fi
 
     # =========================================================
+    # FINISHED & RATING CHECK
+    # =========================================================
+    STATUS_ID=2
+    RATING_MUTATION=""
+
+    INT_PROGRESS=${PROGRESS%.*}
+    if [ "$INT_PROGRESS" -ge 99 ]; then
+        STATUS_ID=3 # Read
+        
+        echo "🎉 Book Finished! Please rate on your Kindle screen..."
+        
+        RATING_JSON='{"id": "hc_rating", "title": "Book Finished!", "message": "What is your Hardcover star rating?", "buttons": [{"label": "1", "id": "r1"}, {"label": "2", "id": "r2"}, {"label": "3", "id": "r3"}, {"label": "4", "id": "r4"}, {"label": "5", "id": "r5"}, {"label": "Skip", "id": "r_skip"}]}'
+        
+        # Trigger dialog
+        lipc-set-prop com.lab126.pillow showDialog "$RATING_JSON"
+        
+        # Wait for the button press event
+        lipc-wait-event com.lab126.pillow dialogFinished | head -n 1 > /tmp/hc_rating.log
+        
+        RATING_VAL=$(cat /tmp/hc_rating.log | grep -o 'r[1-5]' | head -n 1 | sed 's/r//')
+        if [ -n "$RATING_VAL" ]; then
+            RATING_MUTATION=", rating: $RATING_VAL"
+            echo "⭐ Rating: $RATING_VAL Stars"
+        else
+            echo "⏭️ Skipped Rating"
+        fi
+    fi
+
+    # =========================================================
     # GET OR CREATE USER_BOOK_ID & READ_ID
     # =========================================================
     echo "📚 Verifying Shelf Entry..."
@@ -215,7 +244,7 @@ EOF
 
     if [ -z "$USER_BOOK_ID" ]; then
         echo "➕ Creating shelf entry on Hardcover..."
-        CREATE_UB_MUT="{\"query\": \"mutation { insert_user_book(object: {book_id: $HC_BOOK_ID, status_id: 2}) { error user_book { id } } }\"}"
+        CREATE_UB_MUT="{\"query\": \"mutation { insert_user_book(object: {book_id: $HC_BOOK_ID, status_id: $STATUS_ID $RATING_MUTATION}) { error user_book { id } } }\"}"
         CREATE_UB_RES=$(gql_request "$CREATE_UB_MUT")
         USER_BOOK_ID=$(echo "$CREATE_UB_RES" | sed -n 's/.*"user_book":{"id":\([0-9]*\)}.*/\1/p')
         READ_ID=""
@@ -246,7 +275,12 @@ EOF
     if [ -z "$HC_PAGES" ] || [ "$HC_PAGES" = "null" ]; then
         HC_PAGES=100
     fi
-    CALCULATED_PAGES=$(awk "BEGIN {print int($PROGRESS * $HC_PAGES / 100)}")
+    
+    if [ "$INT_PROGRESS" -ge 99 ]; then
+        CALCULATED_PAGES=$HC_PAGES
+    else
+        CALCULATED_PAGES=$(awk "BEGIN {print int($PROGRESS * $HC_PAGES / 100)}")
+    fi
 
     # Generate a UTC ISO8601 timestamp for the activity feed (Reading Journal)
     TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -257,11 +291,11 @@ EOF
             STARTED_AT=$(date +%Y-%m-%d)
         fi
         STARTED_STR=", started_at: \\\"$STARTED_AT\\\""
-        UPDATE_MUTATION="{\"query\": \"mutation { update_user_book_read(id: $READ_ID, object: {progress_pages: $CALCULATED_PAGES $STARTED_STR}) { error } insert_reading_journal(object: {book_id: $HC_BOOK_ID, event: \\\"progress_updated\\\", action_at: \\\"$TIMESTAMP\\\", privacy_setting_id: 1, tags: [], metadata: {progress_pages: $CALCULATED_PAGES, progress: $PROGRESS}}) { reading_journal { id } } }\"}"
+        UPDATE_MUTATION="{\"query\": \"mutation { update_user_book(id: $USER_BOOK_ID, object: {status_id: $STATUS_ID $RATING_MUTATION}) { error } update_user_book_read(id: $READ_ID, object: {progress_pages: $CALCULATED_PAGES $STARTED_STR}) { error } insert_reading_journal(object: {book_id: $HC_BOOK_ID, event: \\\"progress_updated\\\", action_at: \\\"$TIMESTAMP\\\", privacy_setting_id: 1, tags: [], metadata: {progress_pages: $CALCULATED_PAGES, progress: $PROGRESS}}) { reading_journal { id } } }\"}"
     else
         # Create a new read entry
         TODAY=$(date +%Y-%m-%d)
-        UPDATE_MUTATION="{\"query\": \"mutation { insert_user_book_read(user_book_id: $USER_BOOK_ID, user_book_read: {progress_pages: $CALCULATED_PAGES, started_at: \\\"$TODAY\\\"}) { error } insert_reading_journal(object: {book_id: $HC_BOOK_ID, event: \\\"progress_updated\\\", action_at: \\\"$TIMESTAMP\\\", privacy_setting_id: 1, tags: [], metadata: {progress_pages: $CALCULATED_PAGES, progress: $PROGRESS}}) { reading_journal { id } } }\"}"
+        UPDATE_MUTATION="{\"query\": \"mutation { update_user_book(id: $USER_BOOK_ID, object: {status_id: $STATUS_ID $RATING_MUTATION}) { error } insert_user_book_read(user_book_id: $USER_BOOK_ID, user_book_read: {progress_pages: $CALCULATED_PAGES, started_at: \\\"$TODAY\\\"}) { error } insert_reading_journal(object: {book_id: $HC_BOOK_ID, event: \\\"progress_updated\\\", action_at: \\\"$TIMESTAMP\\\", privacy_setting_id: 1, tags: [], metadata: {progress_pages: $CALCULATED_PAGES, progress: $PROGRESS}}) { reading_journal { id } } }\"}"
     fi
 
     echo "📤 Uploading progress ($PROGRESS% -> $CALCULATED_PAGES pages)..."
