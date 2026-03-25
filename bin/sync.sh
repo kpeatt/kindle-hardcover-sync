@@ -1,21 +1,19 @@
 #!/bin/sh
-# Name: Sync to Hardcover
-# Author: System
-# UseHooks
 
 # =========================================================
 # CONFIGURATION
 # =========================================================
-TOKEN_FILE="/mnt/us/extensions/hardcover_token.txt"
+DIR="$( cd "$( dirname "$0" )/.." && pwd )"
+TOKEN_FILE="$DIR/hardcover_token.txt"
+CACHE_FILE="$DIR/hc_cache.txt"
+DEBUG_LOG="$DIR/sync_debug.log"
 DB_PATH="/var/local/cc.db"
-DEBUG_LOG="/mnt/us/documents/sync_debug.log"
+MODE="${1:-manual}"
 
 # Read token from file and strip any whitespace/newlines/carriage returns
 if [ -f "$TOKEN_FILE" ]; then
-    # Use tr to remove any spaces, tabs, newlines, and carriage returns (\r)
     HC_TOKEN=$(cat "$TOKEN_FILE" | tr -d ' \t\n\r')
 elif [ -f "/mnt/us/hardcover_token.txt" ]; then
-    # Fallback to root directory just in case
     HC_TOKEN=$(cat "/mnt/us/hardcover_token.txt" | tr -d ' \t\n\r')
 else
     HC_TOKEN=""
@@ -36,14 +34,11 @@ log_debug() {
 
 on_run() {
     if [ -z "$HC_TOKEN" ]; then
-        echo "❌ Error: Missing API Token."
-        echo "Please save your token in a file named:"
-        echo "hardcover_token.txt"
-        echo "inside the 'extensions' folder on your Kindle."
+        if [ "$MODE" = "manual" ]; then eips -m "❌ Error: Missing Hardcover API Token!"; fi
         return 1
     fi
 
-    echo "🔍 Reading Kindle Database..."
+    if [ "$MODE" = "manual" ]; then eips -m "🔍 Reading Kindle Database..."; fi
     
     # Safely copy the database to avoid "database locked" errors
     DB_COPY="/tmp/cc_copy.db"
@@ -81,7 +76,7 @@ on_run() {
     rm "$DB_COPY"
     
     if [ -z "$BOOK_DATA" ]; then
-        echo "❌ Error: No recent books found."
+        if [ "$MODE" = "manual" ]; then eips -m "❌ Error: No recent books found."; fi
         log_debug "Error: No recent books found in database."
         return 1
     fi
@@ -93,35 +88,64 @@ on_run() {
 
     CLEAN_TITLE=$(echo "$TITLE" | sed 's/[^a-zA-Z0-9 ]//g')
     CLEAN_AUTHOR=$(echo "$AUTHOR" | sed 's/[^a-zA-Z0-9 ]//g' | awk '{print $1}')
-
-    WIFI_STATE=$(lipc-get-prop com.lab126.wifid cmState)
-    if [ "$WIFI_STATE" != "CONNECTED" ]; then
-        echo "📶 Connecting Wi-Fi..."
-        lipc-set-prop com.lab126.wifid enable 1
-        sleep 8
-    fi
+    SHORT_TITLE=$(echo "$CLEAN_TITLE" | awk '{print $1" "$2}')
 
     # =========================================================
     # CACHE CHECK
     # =========================================================
-    CACHE_FILE="/mnt/us/extensions/hc_cache.txt"
     CACHED_MATCH=$(grep "^$ASIN|" "$CACHE_FILE" 2>/dev/null | head -n 1)
 
+    if [ "$MODE" = "auto_check" ]; then
+        if [ -n "$CACHED_MATCH" ]; then
+            return 0 # Already tracked or explicitly ignored
+        fi
+        
+        # Pop up dialog asking to track the new book
+        RATING_JSON='{"id": "hc_ask", "title": "New Book Detected", "message": "Track progress for '"$SHORT_TITLE"' on Hardcover?", "buttons": [{"label": "Yes", "id": "yes"}, {"label": "No", "id": "no"}]}'
+        
+        lipc-set-prop com.lab126.pillow showDialog "$RATING_JSON"
+        lipc-wait-event com.lab126.pillow dialogFinished | head -n 1 > /tmp/hc_ask.log
+        ANS=$(cat /tmp/hc_ask.log | grep -o '"id":"[a-z]*"' | awk -F'"' '{print $4}')
+        
+        if [ "$ANS" = "no" ]; then
+            # Cache it as IGNORE so we never ask again
+            echo "$ASIN|IGNORE|IGNORE|0" >> "$CACHE_FILE"
+            return 0
+        fi
+        
+        # If Yes, we let the script fall through to do the network search and cache the ID right now.
+        if [ "$MODE" = "manual" ]; then eips -m "🌐 Linking to Hardcover..."; fi
+    fi
+
     if [ -n "$CACHED_MATCH" ]; then
-        echo "⚡ Found book in local cache!"
+        if [ "$MODE" = "manual" ]; then eips -m "⚡ Found book in local cache!"; fi
+        
         HC_BOOK_ID=$(echo "$CACHED_MATCH" | awk -F'|' '{print $2}')
+        if [ "$HC_BOOK_ID" = "IGNORE" ]; then
+            if [ "$MODE" = "manual" ]; then eips -m "⏭️ Tracking disabled for this book."; fi
+            return 0 # User chose not to track this book
+        fi
+        
         HC_TITLE=$(echo "$CACHED_MATCH" | awk -F'|' '{print $3}')
         HC_PAGES=$(echo "$CACHED_MATCH" | awk -F'|' '{print $4}')
     else
-        echo "🌐 Searching Hardcover (Exact Match)..."
+        if [ "$MODE" = "auto_sync" ]; then
+            # Book was closed, but it's not in cache. They probably ignored the 'auto_check' dialog. 
+            # We ignore it to avoid unwanted background Wi-Fi usage.
+            return 0
+        fi
 
-        # Hardcover disables `_ilike` operators on their GraphQL server for performance.
-        # We must use exact matching (`_eq`). Because side-loaded book titles can be messy,
-        # we take just the first few words of the title to try and get a match.
-        SHORT_TITLE=$(echo "$CLEAN_TITLE" | awk '{print $1" "$2}')
-        
+        # Need to search network. Ensure Wi-Fi is on.
+        WIFI_STATE=$(lipc-get-prop com.lab126.wifid cmState)
+        if [ "$WIFI_STATE" != "CONNECTED" ]; then
+            if [ "$MODE" = "manual" ]; then eips -m "📶 Connecting Wi-Fi..."; fi
+            lipc-set-prop com.lab126.wifid enable 1
+            sleep 8
+        fi
+
+        if [ "$MODE" = "manual" ]; then eips -m "🌐 Searching Hardcover (Exact Match)..."; fi
+
         SEARCH_QUERY="{\"query\": \"query FindBook { books(where: { _or: [ { identifiers: { identifier: { _eq: \\\"$ASIN\\\" } } }, { title: { _eq: \\\"$CLEAN_TITLE\\\" } }, { title: { _eq: \\\"$SHORT_TITLE\\\" } } ] }, limit: 1) { id title pages } }\"}"
-
         SEARCH_RESPONSE=$(gql_request "$SEARCH_QUERY")
         
         HC_BOOK_ID=$(echo "$SEARCH_RESPONSE" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
@@ -130,14 +154,11 @@ on_run() {
 
         # If exact match fails, fallback to Hardcover's custom fuzzy search action
         if [ -z "$HC_BOOK_ID" ]; then
-            echo "🌐 Falling back to Fuzzy Search..."
+            if [ "$MODE" = "manual" ]; then eips -m "🌐 Falling back to Fuzzy Search..."; fi
             
-            # Hardcover's search action takes a string and returns a stringified JSON array in `results`
             FUZZY_QUERY="{\"query\": \"query FuzzySearch { search(query: \\\"$SHORT_TITLE $CLEAN_AUTHOR\\\", query_type: Book, per_page: 1, page: 1) { results } }\"}"
             FUZZY_RESPONSE=$(gql_request "$FUZZY_QUERY")
             
-            # Fuzzy search returns "id" as a string instead of an int ("id": "12345")
-            # Use simple grep and awk since the JSON is stringified with slashes inside
             HC_BOOK_ID=$(echo "$FUZZY_RESPONSE" | grep -o '\\"id\\":\\"[0-9]*\\"' | head -n 1 | awk -F'"' '{print $6}')
             if [ -z "$HC_BOOK_ID" ]; then
                 HC_BOOK_ID=$(echo "$FUZZY_RESPONSE" | grep -o '"id":"[0-9]*"' | head -n 1 | awk -F'"' '{print $4}')
@@ -157,7 +178,7 @@ on_run() {
         fi
 
         if [ -z "$HC_BOOK_ID" ]; then
-            echo "❌ Error: Could not find book on Hardcover."
+            if [ "$MODE" = "manual" ]; then eips -m "❌ Error: Could not find book on Hardcover."; fi
             DEBUG_INFO=$(cat <<EOF
 Error: Book not found.
 Kindle Title: '$TITLE'
@@ -170,7 +191,6 @@ API Response: $SEARCH_RESPONSE
 EOF
 )
             log_debug "$DEBUG_INFO"
-            echo "Debug info saved to documents/sync_debug.log"
             return 1
         fi
 
@@ -178,45 +198,33 @@ EOF
         # CONFIDENCE CHECK
         # =========================================================
         CONFIDENT=0
+        if echo "$SEARCH_RESPONSE" | grep -q "\"$ASIN\""; then CONFIDENT=1; fi
         
-        # Check 1: Did we get a direct ASIN match in the JSON payload?
-        if echo "$SEARCH_RESPONSE" | grep -q "\"$ASIN\""; then
-            CONFIDENT=1
-        fi
-
-        # Check 2: Are the titles completely identical (case-insensitive)?
         KINDLE_TITLE_LOWER=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]')
         HC_TITLE_LOWER=$(echo "$HC_TITLE" | tr '[:upper:]' '[:lower:]')
-        
-        if [ "$KINDLE_TITLE_LOWER" = "$HC_TITLE_LOWER" ]; then
-            CONFIDENT=1
-        fi
+        if [ "$KINDLE_TITLE_LOWER" = "$HC_TITLE_LOWER" ]; then CONFIDENT=1; fi
 
-        # If we are not confident, ask the user to confirm via touch
         if [ "$CONFIDENT" -eq 0 ]; then
-            echo "⚠️ Low Confidence Match."
-            echo "Kindle says: $TITLE"
-            echo "Hardcover found: $HC_TITLE"
-            echo ""
-            echo "👉 TAP ANYWHERE ON THE SCREEN TO CONFIRM"
-            echo "👉 PRESS THE POWER BUTTON TO CANCEL"
+            # We use Pillow dialog instead of fbink for confirmation now
+            CONFIRM_JSON='{"id": "hc_confirm", "title": "Low Confidence Match", "message": "Kindle says: '$SHORT_TITLE'\nHardcover says: '$HC_TITLE'\n\nIs this correct?", "buttons": [{"label": "Yes", "id": "yes"}, {"label": "No", "id": "no"}]}'
             
-            # waitforkey pauses the shell script until a physical event occurs (screen tap or button press)
-            waitforkey
+            lipc-set-prop com.lab126.pillow showDialog "$CONFIRM_JSON"
+            lipc-wait-event com.lab126.pillow dialogFinished | head -n 1 > /tmp/hc_confirm.log
+            CONFIRM_ANS=$(cat /tmp/hc_confirm.log | grep -o '"id":"[a-z]*"' | awk -F'"' '{print $4}')
             
-            # If the user presses the power button, the screen turns off and the LIPC state changes.
-            # We check if the screen just went to sleep. If so, abort.
-            POWER_STATE=$(lipc-get-prop com.lab126.powerd state)
-            if [ "$POWER_STATE" = "screenSaver" ] || [ "$POWER_STATE" = "suspended" ]; then
-                echo "Cancelled."
+            if [ "$CONFIRM_ANS" = "no" ] || [ -z "$CONFIRM_ANS" ]; then
+                if [ "$MODE" = "manual" ]; then eips -m "Cancelled."; fi
                 return 1
             fi
-        else
-            echo "🔗 Confident Match: $HC_TITLE"
         fi
 
-        # Save to cache so we never have to search for this ASIN again
+        # Save to cache
         echo "$ASIN|$HC_BOOK_ID|$HC_TITLE|$HC_PAGES" >> "$CACHE_FILE"
+    fi
+
+    # If this was just the auto_check daemon, we're done after caching.
+    if [ "$MODE" = "auto_check" ]; then
+        return 0
     fi
 
     # =========================================================
@@ -229,65 +237,52 @@ EOF
     if [ "$INT_PROGRESS" -ge 99 ]; then
         STATUS_ID=3 # Read
         
-        echo "🎉 Book Finished! Please rate on your Kindle screen..."
-        
         RATING_JSON='{"id": "hc_rating", "title": "Book Finished!", "message": "What is your Hardcover star rating?", "buttons": [{"label": "1", "id": "r1"}, {"label": "2", "id": "r2"}, {"label": "3", "id": "r3"}, {"label": "4", "id": "r4"}, {"label": "5", "id": "r5"}, {"label": "Skip", "id": "r_skip"}]}'
         
-        # Trigger dialog
         lipc-set-prop com.lab126.pillow showDialog "$RATING_JSON"
-        
-        # Wait for the button press event
         lipc-wait-event com.lab126.pillow dialogFinished | head -n 1 > /tmp/hc_rating.log
         
         RATING_VAL=$(cat /tmp/hc_rating.log | grep -o 'r[1-5]' | head -n 1 | sed 's/r//')
         if [ -n "$RATING_VAL" ]; then
             RATING_MUTATION=", rating: $RATING_VAL"
-            echo "⭐ Rating: $RATING_VAL Stars"
-        else
-            echo "⏭️ Skipped Rating"
+            if [ "$MODE" = "manual" ]; then eips -m "⭐ Rating: $RATING_VAL Stars"; fi
         fi
+    fi
+
+    # Ensure Wi-Fi is on before sending data
+    WIFI_STATE=$(lipc-get-prop com.lab126.wifid cmState)
+    if [ "$WIFI_STATE" != "CONNECTED" ]; then
+        lipc-set-prop com.lab126.wifid enable 1
+        sleep 8
     fi
 
     # =========================================================
     # GET OR CREATE USER_BOOK_ID & READ_ID
     # =========================================================
-    echo "📚 Verifying Shelf Entry..."
     USER_BOOK_QUERY="{\"query\": \"query { me { user_books(where: { book_id: { _eq: $HC_BOOK_ID } }) { id user_book_reads(order_by: {started_at: desc}, limit: 1) { id started_at } } } }\"}"
     USER_BOOK_RESPONSE=$(gql_request "$USER_BOOK_QUERY")
     
-    # Extract IDs using simple string parsing to avoid jq dependency on Kindle
     USER_BOOK_ID=$(echo "$USER_BOOK_RESPONSE" | sed -n 's/.*"user_books":\[{"id":\([0-9]*\).*/\1/p')
 
     if [ -z "$USER_BOOK_ID" ]; then
-        echo "➕ Creating shelf entry on Hardcover..."
         CREATE_UB_MUT="{\"query\": \"mutation { insert_user_book(object: {book_id: $HC_BOOK_ID, status_id: $STATUS_ID $RATING_MUTATION}) { error user_book { id } } }\"}"
         CREATE_UB_RES=$(gql_request "$CREATE_UB_MUT")
         USER_BOOK_ID=$(echo "$CREATE_UB_RES" | sed -n 's/.*"user_book":{"id":\([0-9]*\)}.*/\1/p')
         READ_ID=""
         STARTED_AT=""
     else
-        # Extract the latest read ID and started_at date (if any)
         READ_ID=$(echo "$USER_BOOK_RESPONSE" | sed -n 's/.*"user_book_reads":\[{"id":\([0-9]*\).*/\1/p')
         STARTED_AT=$(echo "$USER_BOOK_RESPONSE" | sed -n 's/.*"started_at":"\([^"]*\)".*/\1/p')
     fi
 
     if [ -z "$USER_BOOK_ID" ]; then
-        echo "❌ Error: Could not verify shelf entry."
-        DEBUG_INFO=$(cat <<EOF
-Error: Could not get or create UserBook.
-Book ID: $HC_BOOK_ID
-Query Response: $USER_BOOK_RESPONSE
-Mutation Response: $CREATE_UB_RES
-EOF
-)
-        log_debug "$DEBUG_INFO"
+        if [ "$MODE" = "manual" ]; then eips -m "❌ Error: Could not verify shelf entry."; fi
         return 1
     fi
 
     # =========================================================
     # UPLOAD PROGRESS
     # =========================================================
-    # Hardcover's backend expects progress in PAGES, not percentage.
     if [ -z "$HC_PAGES" ] || [ "$HC_PAGES" = "null" ]; then
         HC_PAGES=100
     fi
@@ -298,29 +293,26 @@ EOF
         CALCULATED_PAGES=$(awk "BEGIN {print int($PROGRESS * $HC_PAGES / 100)}")
     fi
 
-    # Generate a UTC ISO8601 timestamp for the activity feed (Reading Journal)
     TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
     if [ -n "$READ_ID" ]; then
-        # Update existing read
         if [ -z "$STARTED_AT" ] || [ "$STARTED_AT" = "null" ]; then
             STARTED_AT=$(date +%Y-%m-%d)
         fi
         STARTED_STR=", started_at: \\\"$STARTED_AT\\\""
         UPDATE_MUTATION="{\"query\": \"mutation { update_user_book(id: $USER_BOOK_ID, object: {status_id: $STATUS_ID $RATING_MUTATION}) { error } update_user_book_read(id: $READ_ID, object: {progress_pages: $CALCULATED_PAGES $STARTED_STR}) { error } insert_reading_journal(object: {book_id: $HC_BOOK_ID, event: \\\"progress_updated\\\", action_at: \\\"$TIMESTAMP\\\", privacy_setting_id: 1, tags: [], metadata: {progress_pages: $CALCULATED_PAGES, progress: $PROGRESS}}) { reading_journal { id } } }\"}"
     else
-        # Create a new read entry
         TODAY=$(date +%Y-%m-%d)
         UPDATE_MUTATION="{\"query\": \"mutation { update_user_book(id: $USER_BOOK_ID, object: {status_id: $STATUS_ID $RATING_MUTATION}) { error } insert_user_book_read(user_book_id: $USER_BOOK_ID, user_book_read: {progress_pages: $CALCULATED_PAGES, started_at: \\\"$TODAY\\\"}) { error } insert_reading_journal(object: {book_id: $HC_BOOK_ID, event: \\\"progress_updated\\\", action_at: \\\"$TIMESTAMP\\\", privacy_setting_id: 1, tags: [], metadata: {progress_pages: $CALCULATED_PAGES, progress: $PROGRESS}}) { reading_journal { id } } }\"}"
     fi
 
-    echo "📤 Uploading progress ($PROGRESS% -> $CALCULATED_PAGES pages)..."
+    if [ "$MODE" = "manual" ]; then eips -m "📤 Uploading progress ($PROGRESS%)..."; fi
     UPDATE_RESPONSE=$(gql_request "$UPDATE_MUTATION")
 
     if echo "$UPDATE_RESPONSE" | grep -q '"error":null'; then
-        echo "✅ Successfully Synced!"
+        if [ "$MODE" = "manual" ]; then eips -m "✅ Successfully Synced!"; fi
     else
-        echo "❌ Sync failed. API Error."
+        if [ "$MODE" = "manual" ]; then eips -m "❌ Sync failed. Check debug log."; fi
         DEBUG_INFO=$(cat <<EOF
 Update Failed.
 Mutation: $UPDATE_MUTATION
@@ -328,6 +320,7 @@ API Response: $UPDATE_RESPONSE
 EOF
 )
         log_debug "$DEBUG_INFO"
-        echo "Debug info saved to documents/sync_debug.log"
     fi
 }
+
+on_run

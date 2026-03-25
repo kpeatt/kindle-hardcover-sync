@@ -1,33 +1,36 @@
-# Kindle to Hardcover Sync Scriptlet
+# Hardcover Sync for Kindle (KUAL Extension)
 
-A native scriptlet for jailbroken Amazon Kindle e-readers that automatically syncs your current reading progress directly to [Hardcover.app](https://hardcover.app).
+A native application for jailbroken Amazon Kindle e-readers that automatically syncs your current reading progress, ratings, and read dates directly to [Hardcover.app](https://hardcover.app).
 
 ## Features
+- **Auto-Sync Daemon:** Runs silently in the background. When you open a new book, it asks if you want to track it. When you close a book, it automatically pushes your progress to Hardcover over Wi-Fi.
+- **Smart Local Caching:** Remembers book IDs locally so it only has to search the Hardcover database once per book.
+- **Star Ratings:** When you reach 100% in a book, a native Kindle pop-up asks you to give it a 1-5 star rating before syncing.
 - **No Proxy Needed:** Runs entirely on your Kindle by reading the local `cc.db` SQLite database.
-- **Smart Search:** Searches Hardcover's database using the book's ASIN. If that fails (e.g., for side-loaded books), it falls back to a fuzzy search combining the Title and Author.
-- **Confidence Check:** If the script isn't 100% confident it found the correct book on Hardcover, it will prompt you on your Kindle's E-ink display to tap to confirm or press the power button to cancel.
-- **Native UI:** Uses FBInk to display progress directly on the screen.
-- **Auto Wi-Fi:** Automatically turns on Wi-Fi if your Kindle is in airplane mode to perform the sync.
 
 ## Prerequisites
 1. A **jailbroken Kindle**.
-2. **KUAL** and the **Universal Hotfix** (which includes `SH_Integration` for scriptlets) installed.
+2. **KUAL** (Kindle Unified Application Launcher) installed.
 3. Your Hardcover API Token.
 
 ## Installation
 
 1. Generate an API token from your [Hardcover Account Settings](https://hardcover.app/account/api). (Click "Create Token" or "Personal Access Token" to get a long-lived token, do not copy it from your browser's network tab).
-2. Download or clone `sync_hardcover.sh`.
-3. Create a plain text file named `hardcover_token.txt` on your computer and paste your API token directly inside it (no spaces or extra lines).
-4. Connect your Kindle to your computer via USB.
-5. Copy the `hardcover_token.txt` file into the **`extensions`** folder on your Kindle drive. This prevents the Kindle's book indexer from crashing or showing the token as a blank book.
-6. Copy the `sync_hardcover.sh` scriptlet into your Kindle's `/documents` folder.
+2. Download this entire repository as a ZIP file and extract it.
+3. Create a plain text file named `hardcover_token.txt` and paste your API token directly inside it (no spaces or extra lines).
+4. Place `hardcover_token.txt` inside the extracted `kindle-hardcover-sync` folder.
+5. Connect your Kindle to your computer via USB.
+6. Copy the entire `kindle-hardcover-sync` folder into the **`extensions`** folder on your Kindle drive (`/mnt/us/extensions/`).
 7. Eject your Kindle. 
 
-The scriptlet will automatically be indexed and appear in your Kindle Library as a book named "Sync to Hardcover".
-
 ## Usage
-Simply tap the "Sync to Hardcover" item in your Kindle library when you finish a reading session. It will wake up, read your database, push your progress, and print a confirmation message on your screen.
+Open **KUAL** on your Kindle. You will see a new menu item called **Hardcover Sync**.
+
+*   **Sync Current Book Now:** Manually forces a sync of the last book you opened.
+*   **Auto-Sync Settings:** 
+    *   **Start Daemon:** Enables the background listener. It will prompt you to track new books when opened, and automatically sync progress when closed.
+    *   **Stop Daemon:** Disables background syncing.
+*   **Clear Hardcover Book Cache:** Wipes the local memory of matched books, forcing the script to re-search Hardcover the next time you sync.
 
 ## Note on Side-loaded Books
-For side-loaded books (EPUBs converted to AZW3/KFX), they often lack an ASIN. The script relies on the Title and Author match. To make this 100% reliable, ensure the Title on your Kindle closely matches the Title on Hardcover!
+For side-loaded books (EPUBs converted to AZW3/KFX), they often lack an ASIN. The script relies on the Title and Author match. If the auto-matcher fails, it will ask you to confirm if it found the right book.

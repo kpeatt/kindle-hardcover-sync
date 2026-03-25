@@ -1,0 +1,35 @@
+{
+  "items": [
+    {
+      "name": "Sync Current Book Now",
+      "priority": 1,
+      "action": "bin/sync.sh",
+      "params": "manual"
+    },
+    {
+      "name": "Auto-Sync Settings",
+      "priority": 2,
+      "items": [
+        {
+          "name": "Start Auto-Sync Daemon",
+          "priority": 1,
+          "action": "bin/daemon.sh",
+          "params": "start",
+          "refresh": true
+        },
+        {
+          "name": "Stop Auto-Sync Daemon",
+          "priority": 2,
+          "action": "bin/daemon.sh",
+          "params": "stop",
+          "refresh": true
+        }
+      ]
+    },
+    {
+      "name": "Clear Hardcover Book Cache",
+      "priority": 3,
+      "action": "bin/clear_cache.sh"
+    }
+  ]
+}

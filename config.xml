@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension>
+	<information>
+		<name>Hardcover Sync</name>
+		<version>2.0.0</version>
+		<author>System</author>
+		<id>hardcover_sync</id>
+	</information>
+	<menus>
+		<menu type="kual" id="hardcover_sync_menu">
+			<label>Hardcover Sync</label>
+		</menu>
+	</menus>
+</extension>
