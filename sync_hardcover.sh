@@ -101,52 +101,64 @@ on_run() {
         sleep 8
     fi
 
-    echo "🌐 Searching Hardcover (Exact Match)..."
+    # =========================================================
+    # CACHE CHECK
+    # =========================================================
+    CACHE_FILE="/mnt/us/extensions/hc_cache.txt"
+    CACHED_MATCH=$(grep "^$ASIN|" "$CACHE_FILE" 2>/dev/null | head -n 1)
 
-    # Hardcover disables `_ilike` operators on their GraphQL server for performance.
-    # We must use exact matching (`_eq`). Because side-loaded book titles can be messy,
-    # we take just the first few words of the title to try and get a match.
-    SHORT_TITLE=$(echo "$CLEAN_TITLE" | awk '{print $1" "$2}')
-    
-    SEARCH_QUERY="{\"query\": \"query FindBook { books(where: { _or: [ { identifiers: { identifier: { _eq: \\\"$ASIN\\\" } } }, { title: { _eq: \\\"$CLEAN_TITLE\\\" } }, { title: { _eq: \\\"$SHORT_TITLE\\\" } } ] }, limit: 1) { id title pages } }\"}"
+    if [ -n "$CACHED_MATCH" ]; then
+        echo "⚡ Found book in local cache!"
+        HC_BOOK_ID=$(echo "$CACHED_MATCH" | awk -F'|' '{print $2}')
+        HC_TITLE=$(echo "$CACHED_MATCH" | awk -F'|' '{print $3}')
+        HC_PAGES=$(echo "$CACHED_MATCH" | awk -F'|' '{print $4}')
+    else
+        echo "🌐 Searching Hardcover (Exact Match)..."
 
-    SEARCH_RESPONSE=$(gql_request "$SEARCH_QUERY")
-    
-    HC_BOOK_ID=$(echo "$SEARCH_RESPONSE" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-    HC_TITLE=$(echo "$SEARCH_RESPONSE" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p')
-    HC_PAGES=$(echo "$SEARCH_RESPONSE" | sed -n 's/.*"pages":\([0-9]*\).*/\1/p')
-
-    # If exact match fails, fallback to Hardcover's custom fuzzy search action
-    if [ -z "$HC_BOOK_ID" ]; then
-        echo "🌐 Falling back to Fuzzy Search..."
+        # Hardcover disables `_ilike` operators on their GraphQL server for performance.
+        # We must use exact matching (`_eq`). Because side-loaded book titles can be messy,
+        # we take just the first few words of the title to try and get a match.
+        SHORT_TITLE=$(echo "$CLEAN_TITLE" | awk '{print $1" "$2}')
         
-        # Hardcover's search action takes a string and returns a stringified JSON array in `results`
-        FUZZY_QUERY="{\"query\": \"query FuzzySearch { search(query: \\\"$SHORT_TITLE $CLEAN_AUTHOR\\\", query_type: Book, per_page: 1, page: 1) { results } }\"}"
-        FUZZY_RESPONSE=$(gql_request "$FUZZY_QUERY")
+        SEARCH_QUERY="{\"query\": \"query FindBook { books(where: { _or: [ { identifiers: { identifier: { _eq: \\\"$ASIN\\\" } } }, { title: { _eq: \\\"$CLEAN_TITLE\\\" } }, { title: { _eq: \\\"$SHORT_TITLE\\\" } } ] }, limit: 1) { id title pages } }\"}"
+
+        SEARCH_RESPONSE=$(gql_request "$SEARCH_QUERY")
         
-        # Fuzzy search returns "id" as a string instead of an int ("id": "12345")
-        # Use simple grep and awk since the JSON is stringified with slashes inside
-        HC_BOOK_ID=$(echo "$FUZZY_RESPONSE" | grep -o '\\"id\\":\\"[0-9]*\\"' | head -n 1 | awk -F'"' '{print $6}')
+        HC_BOOK_ID=$(echo "$SEARCH_RESPONSE" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+        HC_TITLE=$(echo "$SEARCH_RESPONSE" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p')
+        HC_PAGES=$(echo "$SEARCH_RESPONSE" | sed -n 's/.*"pages":\([0-9]*\).*/\1/p')
+
+        # If exact match fails, fallback to Hardcover's custom fuzzy search action
         if [ -z "$HC_BOOK_ID" ]; then
-            HC_BOOK_ID=$(echo "$FUZZY_RESPONSE" | grep -o '"id":"[0-9]*"' | head -n 1 | awk -F'"' '{print $4}')
+            echo "🌐 Falling back to Fuzzy Search..."
+            
+            # Hardcover's search action takes a string and returns a stringified JSON array in `results`
+            FUZZY_QUERY="{\"query\": \"query FuzzySearch { search(query: \\\"$SHORT_TITLE $CLEAN_AUTHOR\\\", query_type: Book, per_page: 1, page: 1) { results } }\"}"
+            FUZZY_RESPONSE=$(gql_request "$FUZZY_QUERY")
+            
+            # Fuzzy search returns "id" as a string instead of an int ("id": "12345")
+            # Use simple grep and awk since the JSON is stringified with slashes inside
+            HC_BOOK_ID=$(echo "$FUZZY_RESPONSE" | grep -o '\\"id\\":\\"[0-9]*\\"' | head -n 1 | awk -F'"' '{print $6}')
+            if [ -z "$HC_BOOK_ID" ]; then
+                HC_BOOK_ID=$(echo "$FUZZY_RESPONSE" | grep -o '"id":"[0-9]*"' | head -n 1 | awk -F'"' '{print $4}')
+            fi
+
+            HC_TITLE=$(echo "$FUZZY_RESPONSE" | grep -o '\\"title\\":\\"[^\\]*\\"' | head -n 1 | awk -F'"' '{print $6}')
+            if [ -z "$HC_TITLE" ]; then
+                HC_TITLE=$(echo "$FUZZY_RESPONSE" | grep -o '"title":"[^"]*"' | head -n 1 | awk -F'"' '{print $4}')
+            fi
+            
+            HC_PAGES=$(echo "$FUZZY_RESPONSE" | grep -o '\\"pages\\":[0-9]*' | head -n 1 | awk -F':' '{print $2}')
+            if [ -z "$HC_PAGES" ]; then
+                HC_PAGES=$(echo "$FUZZY_RESPONSE" | grep -o '"pages":[0-9]*' | head -n 1 | awk -F':' '{print $2}')
+            fi
+            
+            SEARCH_RESPONSE="Exact: $SEARCH_RESPONSE | Fuzzy: $FUZZY_RESPONSE"
         fi
 
-        HC_TITLE=$(echo "$FUZZY_RESPONSE" | grep -o '\\"title\\":\\"[^\\]*\\"' | head -n 1 | awk -F'"' '{print $6}')
-        if [ -z "$HC_TITLE" ]; then
-            HC_TITLE=$(echo "$FUZZY_RESPONSE" | grep -o '"title":"[^"]*"' | head -n 1 | awk -F'"' '{print $4}')
-        fi
-        
-        HC_PAGES=$(echo "$FUZZY_RESPONSE" | grep -o '\\"pages\\":[0-9]*' | head -n 1 | awk -F':' '{print $2}')
-        if [ -z "$HC_PAGES" ]; then
-            HC_PAGES=$(echo "$FUZZY_RESPONSE" | grep -o '"pages":[0-9]*' | head -n 1 | awk -F':' '{print $2}')
-        fi
-        
-        SEARCH_RESPONSE="Exact: $SEARCH_RESPONSE | Fuzzy: $FUZZY_RESPONSE"
-    fi
-
-    if [ -z "$HC_BOOK_ID" ]; then
-        echo "❌ Error: Could not find book on Hardcover."
-        DEBUG_INFO=$(cat <<EOF
+        if [ -z "$HC_BOOK_ID" ]; then
+            echo "❌ Error: Could not find book on Hardcover."
+            DEBUG_INFO=$(cat <<EOF
 Error: Book not found.
 Kindle Title: '$TITLE'
 Kindle Author: '$AUTHOR'
@@ -157,50 +169,54 @@ Search Query: $SEARCH_QUERY
 API Response: $SEARCH_RESPONSE
 EOF
 )
-        log_debug "$DEBUG_INFO"
-        echo "Debug info saved to documents/sync_debug.log"
-        return 1
-    fi
-
-    # =========================================================
-    # CONFIDENCE CHECK
-    # =========================================================
-    CONFIDENT=0
-    
-    # Check 1: Did we get a direct ASIN match in the JSON payload?
-    if echo "$SEARCH_RESPONSE" | grep -q "\"$ASIN\""; then
-        CONFIDENT=1
-    fi
-
-    # Check 2: Are the titles completely identical (case-insensitive)?
-    KINDLE_TITLE_LOWER=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]')
-    HC_TITLE_LOWER=$(echo "$HC_TITLE" | tr '[:upper:]' '[:lower:]')
-    
-    if [ "$KINDLE_TITLE_LOWER" = "$HC_TITLE_LOWER" ]; then
-        CONFIDENT=1
-    fi
-
-    # If we are not confident, ask the user to confirm via touch
-    if [ "$CONFIDENT" -eq 0 ]; then
-        echo "⚠️ Low Confidence Match."
-        echo "Kindle says: $TITLE"
-        echo "Hardcover found: $HC_TITLE"
-        echo ""
-        echo "👉 TAP ANYWHERE ON THE SCREEN TO CONFIRM"
-        echo "👉 PRESS THE POWER BUTTON TO CANCEL"
-        
-        # waitforkey pauses the shell script until a physical event occurs (screen tap or button press)
-        waitforkey
-        
-        # If the user presses the power button, the screen turns off and the LIPC state changes.
-        # We check if the screen just went to sleep. If so, abort.
-        POWER_STATE=$(lipc-get-prop com.lab126.powerd state)
-        if [ "$POWER_STATE" = "screenSaver" ] || [ "$POWER_STATE" = "suspended" ]; then
-            echo "Cancelled."
+            log_debug "$DEBUG_INFO"
+            echo "Debug info saved to documents/sync_debug.log"
             return 1
         fi
-    else
-        echo "🔗 Confident Match: $HC_TITLE"
+
+        # =========================================================
+        # CONFIDENCE CHECK
+        # =========================================================
+        CONFIDENT=0
+        
+        # Check 1: Did we get a direct ASIN match in the JSON payload?
+        if echo "$SEARCH_RESPONSE" | grep -q "\"$ASIN\""; then
+            CONFIDENT=1
+        fi
+
+        # Check 2: Are the titles completely identical (case-insensitive)?
+        KINDLE_TITLE_LOWER=$(echo "$TITLE" | tr '[:upper:]' '[:lower:]')
+        HC_TITLE_LOWER=$(echo "$HC_TITLE" | tr '[:upper:]' '[:lower:]')
+        
+        if [ "$KINDLE_TITLE_LOWER" = "$HC_TITLE_LOWER" ]; then
+            CONFIDENT=1
+        fi
+
+        # If we are not confident, ask the user to confirm via touch
+        if [ "$CONFIDENT" -eq 0 ]; then
+            echo "⚠️ Low Confidence Match."
+            echo "Kindle says: $TITLE"
+            echo "Hardcover found: $HC_TITLE"
+            echo ""
+            echo "👉 TAP ANYWHERE ON THE SCREEN TO CONFIRM"
+            echo "👉 PRESS THE POWER BUTTON TO CANCEL"
+            
+            # waitforkey pauses the shell script until a physical event occurs (screen tap or button press)
+            waitforkey
+            
+            # If the user presses the power button, the screen turns off and the LIPC state changes.
+            # We check if the screen just went to sleep. If so, abort.
+            POWER_STATE=$(lipc-get-prop com.lab126.powerd state)
+            if [ "$POWER_STATE" = "screenSaver" ] || [ "$POWER_STATE" = "suspended" ]; then
+                echo "Cancelled."
+                return 1
+            fi
+        else
+            echo "🔗 Confident Match: $HC_TITLE"
+        fi
+
+        # Save to cache so we never have to search for this ASIN again
+        echo "$ASIN|$HC_BOOK_ID|$HC_TITLE|$HC_PAGES" >> "$CACHE_FILE"
     fi
 
     # =========================================================
