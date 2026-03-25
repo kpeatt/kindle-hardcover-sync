@@ -248,17 +248,20 @@ EOF
     fi
     CALCULATED_PAGES=$(awk "BEGIN {print int($PROGRESS * $HC_PAGES / 100)}")
 
+    # Generate a UTC ISO8601 timestamp for the activity feed (Reading Journal)
+    TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
     if [ -n "$READ_ID" ]; then
         # Update existing read
         if [ -z "$STARTED_AT" ] || [ "$STARTED_AT" = "null" ]; then
             STARTED_AT=$(date +%Y-%m-%d)
         fi
         STARTED_STR=", started_at: \\\"$STARTED_AT\\\""
-        UPDATE_MUTATION="{\"query\": \"mutation { update_user_book_read(id: $READ_ID, object: {progress_pages: $CALCULATED_PAGES $STARTED_STR}) { error } }\"}"
+        UPDATE_MUTATION="{\"query\": \"mutation { update_user_book_read(id: $READ_ID, object: {progress_pages: $CALCULATED_PAGES $STARTED_STR}) { error } insert_reading_journal(object: {book_id: $HC_BOOK_ID, event: \\\"progress_updated\\\", action_at: \\\"$TIMESTAMP\\\", privacy_setting_id: 1, tags: [], metadata: {progress_pages: $CALCULATED_PAGES, progress: $PROGRESS}}) { reading_journal { id } } }\"}"
     else
         # Create a new read entry
         TODAY=$(date +%Y-%m-%d)
-        UPDATE_MUTATION="{\"query\": \"mutation { insert_user_book_read(user_book_id: $USER_BOOK_ID, user_book_read: {progress_pages: $CALCULATED_PAGES, started_at: \\\"$TODAY\\\"}) { error } }\"}"
+        UPDATE_MUTATION="{\"query\": \"mutation { insert_user_book_read(user_book_id: $USER_BOOK_ID, user_book_read: {progress_pages: $CALCULATED_PAGES, started_at: \\\"$TODAY\\\"}) { error } insert_reading_journal(object: {book_id: $HC_BOOK_ID, event: \\\"progress_updated\\\", action_at: \\\"$TIMESTAMP\\\", privacy_setting_id: 1, tags: [], metadata: {progress_pages: $CALCULATED_PAGES, progress: $PROGRESS}}) { reading_journal { id } } }\"}"
     fi
 
     echo "📤 Uploading progress ($PROGRESS% -> $CALCULATED_PAGES pages)..."
