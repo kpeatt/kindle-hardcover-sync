@@ -21,7 +21,8 @@ A native application for jailbroken Amazon Kindle e-readers that automatically s
 4. Place `hardcover_token.txt` inside the extracted `kindle-hardcover-sync` folder.
 5. Connect your Kindle to your computer via USB.
 6. Copy the entire `kindle-hardcover-sync` folder into the **`extensions`** folder on your Kindle drive (`/mnt/us/extensions/`).
-7. Eject your Kindle. 
+7. **(Optional) Scriptlet Installation:** If you want to manually sync from your Kindle Library without opening KUAL, copy the `Sync_to_Hardcover.sh` file from the `scriptlet` folder into your Kindle's **`documents`** folder (`/mnt/us/documents/`).
+8. Eject your Kindle. 
 
 ## Usage
 Open **KUAL** on your Kindle. You will see a new menu item called **Hardcover Sync**.
@@ -31,6 +32,8 @@ Open **KUAL** on your Kindle. You will see a new menu item called **Hardcover Sy
     *   **Start Daemon:** Enables the background listener. It will prompt you to track new books when opened, and automatically sync progress when closed.
     *   **Stop Daemon:** Disables background syncing.
 *   **Clear Hardcover Book Cache:** Wipes the local memory of matched books, forcing the script to re-search Hardcover the next time you sync.
+
+**Library Syncing (Scriptlet):** If you installed the optional Scriptlet in Step 7, an item named "Sync to Hardcover" will appear directly in your Kindle library. Simply tap it to manually sync your current book at any time.
 
 ## Note on Side-loaded Books
 For side-loaded books (EPUBs converted to AZW3/KFX), they often lack an ASIN. The script relies on the Title and Author match. If the auto-matcher fails, it will ask you to confirm if it found the right book.
