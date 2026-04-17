@@ -3,13 +3,12 @@
 DIR="$( cd "$( dirname "$0" )/.." && pwd )"
 LOG="$DIR/test_dialog.log"
 LIPC_SET=/usr/bin/lipc-set-prop
-LIPC_WAIT=/usr/bin/lipc-wait-event
 EIPS=/usr/sbin/eips
 PILLOW_DIR=/usr/share/webkit-1.0/pillow
 SRC_HTML_DIR=/mnt/us/extensions/kindle-hardcover-sync/html
 MSGLOG=/var/log/messages
 
-$EIPS -m "Test running in 4s..."
+$EIPS -m "Test: tap button B (middle)"
 (
   sleep 4
 
@@ -23,43 +22,33 @@ $EIPS -m "Test running in 4s..."
   ln -sf "$SRC_HTML_DIR/dialog.html" "$PILLOW_DIR/hc_dialog.html"
   mntroot ro >> "$LOG" 2>&1
 
-  rm -f /tmp/hc_dialog_reply /tmp/hc_lipc_reply
-  $LIPC_WAIT -s 0 com.lab126.pillow debugInfo > /tmp/hc_lipc_reply 2>&1 &
-  WAIT_PID=$!
-
   MSG_START_BYTES=$(wc -c < "$MSGLOG" 2>/dev/null || echo 0)
 
-  echo "### Firing hc_dialog ###" >> "$LOG"
+  echo "### Firing hc_dialog with 3 buttons (A B C) — tap B (middle) ###" >> "$LOG"
   $LIPC_SET com.lab126.pillow customDialog \
-    '{"name":"hc_dialog","clientParams":{"title":"Reply Test","message":"Tap A or B.","buttons":[{"label":"A","id":"a"},{"label":"B","id":"b"}]}}' \
+    '{"name":"hc_dialog","clientParams":{"title":"Button Index Test","message":"Tap B (the middle button).","buttons":[{"label":"A","id":"a"},{"label":"B","id":"b"},{"label":"C","id":"c"}]}}' \
     >> "$LOG" 2>&1
   echo "exit: $?" >> "$LOG"
-  $EIPS -m "Dialog fired. Tap A or B."
 
-  FOUND=""
+  BUTTON_IDX=""
   i=0
   while [ $i -lt 20 ]; do
-    if [ -f /tmp/hc_dialog_reply ]; then FOUND="sendEvent-file=$(cat /tmp/hc_dialog_reply)"; break; fi
-    if [ -s /tmp/hc_lipc_reply ]; then FOUND="debugInfo-lipc=$(cat /tmp/hc_lipc_reply)"; break; fi
-    HC_LINE=$(tail -c +$((MSG_START_BYTES + 1)) "$MSGLOG" 2>/dev/null | grep -o "HC_REPLY:[a-z_]*" | head -n 1)
-    [ -n "$HC_LINE" ] && { FOUND="logDbg-messages=$HC_LINE"; break; }
+    BUTTON_IDX=$(tail -c +$((MSG_START_BYTES + 1)) "$MSGLOG" 2>/dev/null | grep -o "button-press:target=hc_dialog,button=[0-9]*" | head -n 1 | sed 's/.*button=//')
+    [ -n "$BUTTON_IDX" ] && break
     sleep 1
     i=$((i + 1))
-    # Stream progress so the log is readable even if user unplugs early
     echo "poll $i/20 ..." >> "$LOG"
   done
-  kill $WAIT_PID 2>/dev/null
-  wait 2>/dev/null
 
-  if [ -n "$FOUND" ]; then
-    echo "REPLY RECEIVED: $FOUND" >> "$LOG"
+  if [ -n "$BUTTON_IDX" ]; then
+    echo "BUTTON INDEX DETECTED: $BUTTON_IDX" >> "$LOG"
   else
-    echo "No reply via any channel (timeout 20s)" >> "$LOG"
+    echo "No button-press log line found within 20s" >> "$LOG"
   fi
 
   echo "" >> "$LOG"
-  echo "### NEW /var/log/messages lines since test start ###" >> "$LOG"
-  tail -c +$((MSG_START_BYTES + 1)) "$MSGLOG" 2>/dev/null | grep -iE "HC_|pillow|webkit|dialog|nativeBridge" | head -n 80 >> "$LOG"
+  echo "### relevant /var/log/messages lines ###" >> "$LOG"
+  tail -c +$((MSG_START_BYTES + 1)) "$MSGLOG" 2>/dev/null | grep -iE "button|pillow.*hc_dialog|HC_" | head -n 30 >> "$LOG"
 
   echo "" >> "$LOG"
   echo "Test complete at $(date)" >> "$LOG"
