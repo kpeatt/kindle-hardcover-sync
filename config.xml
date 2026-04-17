@@ -7,8 +7,6 @@
 		<id>hardcover_sync</id>
 	</information>
 	<menus>
-		<menu type="kual" id="hardcover_sync_menu">
-			<label>Hardcover Sync</label>
-		</menu>
+		<menu type="json" dynamic="true">menu.json</menu>
 	</menus>
 </extension>
