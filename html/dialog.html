@@ -22,13 +22,34 @@ button:active { background: #000; color: #fff; }
 <div class="message" id="message">Loading...</div>
 <div class="buttons" id="buttons"></div>
 <script>
+var CLIENT_PARAMS = null;
+
 function reply(id) {
-  try { nativeBridge.setLipcProperty("com.lab126.system", "sendEvent", "; echo " + id + " > /tmp/hc_dialog_reply &"); } catch (e) {}
+  // Try every reply mechanism we know — whichever lands.
+  // 1. Amazon's documented pattern: setLipcProperty on passed-in src+prop.
+  try {
+    if (CLIENT_PARAMS && CLIENT_PARAMS.replyLipcSrc && CLIENT_PARAMS.replyProp) {
+      nativeBridge.setLipcProperty(CLIENT_PARAMS.replyLipcSrc, CLIENT_PARAMS.replyProp, id);
+    }
+  } catch (e) {}
+  // 2. sendEvent shell-injection hack (documented, may be patched on 5.16).
+  try {
+    nativeBridge.setLipcProperty("com.lab126.system", "sendEvent", "; echo " + id + " > /tmp/hc_dialog_reply &");
+  } catch (e) {}
+  // 3. Directly set a well-known property on pillow itself as a mailbox.
+  try {
+    nativeBridge.setLipcProperty("com.lab126.pillow", "hcReply", id);
+  } catch (e) {}
+  // 4. Last-ditch: window.location to a file:// URL the shell can tail.
+  try {
+    window.location = "file:///tmp/hc_dialog_reply?" + id;
+  } catch (e) {}
   try { nativeBridge.dismissMe(); } catch (e) {}
 }
 
 function render(paramsString) {
   var p; try { p = JSON.parse(paramsString); } catch (e) { return; }
+  CLIENT_PARAMS = p;
   if (p.title) document.getElementById("title").textContent = p.title;
   if (p.message !== undefined) document.getElementById("message").textContent = p.message;
   var btnDiv = document.getElementById("buttons");
