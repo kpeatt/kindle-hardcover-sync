@@ -13,16 +13,19 @@ start_daemon() {
     (
         echo $$ > "$PID_FILE"
         
-        # Monitor appmgrd state changes
-        lipc-wait-event -m com.lab126.appmgrd appStateChange | while read event; do
-            if echo "$event" | grep -q "app=reader.*state=start"; then
-                # Book opened. Wait briefly for database to update lastAccess, then check cache
-                sleep 5
-                sh "$DIR/bin/sync.sh" auto_check
-            elif echo "$event" | grep -q "app=reader.*state=stop"; then
-                # Book closed. Trigger auto sync!
-                sh "$DIR/bin/sync.sh" auto_sync
-            fi
+        # Monitor reader foreground/background transitions
+        lipc-wait-event -m -s 0 com.lab126.appmgrd appActivating | while read line; do
+            case "$line" in
+                *'appActivating 1 "com.lab126.booklet.reader"'*)
+                    # Book opened. Wait briefly for database to update lastAccess, then check cache
+                    sleep 5
+                    sh "$DIR/bin/sync.sh" auto_check
+                    ;;
+                *'appActivating 0 "com.lab126.booklet.reader"'*)
+                    # Book closed. Trigger auto sync!
+                    sh "$DIR/bin/sync.sh" auto_sync
+                    ;;
+            esac
         done
     ) &
     

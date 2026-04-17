@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Hardcover Sync</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: Helvetica, Arial, sans-serif;
+  background: #fff;
+  color: #000;
+  padding: 30px;
+}
+h1 { font-size: 28px; margin-bottom: 16px; }
+.message { font-size: 20px; line-height: 1.4; margin-bottom: 24px; white-space: pre-wrap; }
+.buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+button {
+  font-size: 22px;
+  padding: 14px 22px;
+  border: 2px solid #000;
+  background: #fff;
+  color: #000;
+  cursor: pointer;
+  min-width: 80px;
+}
+button:active { background: #000; color: #fff; }
+</style>
+</head>
+<body>
+<h1 id="title"></h1>
+<div class="message" id="message"></div>
+<div class="buttons" id="buttons"></div>
+<script>
+function reply(id) {
+  var cmd = "; echo " + id + " > /tmp/hc_dialog_reply &";
+  try { nativeBridge.setLipcProperty("com.lab126.system", "sendEvent", cmd); } catch (e) {}
+  try { nativeBridge.dismissMe(); } catch (e) {}
+}
+
+function render(paramsString) {
+  var p;
+  try { p = JSON.parse(paramsString); } catch (e) { return; }
+  document.getElementById("title").textContent = p.title || "";
+  document.getElementById("message").textContent = p.message || "";
+  var btnDiv = document.getElementById("buttons");
+  btnDiv.innerHTML = "";
+  var btns = p.buttons || [];
+  for (var i = 0; i < btns.length; i++) {
+    (function (b) {
+      var el = document.createElement("button");
+      el.textContent = b.label;
+      el.onclick = function () { reply(b.id); };
+      btnDiv.appendChild(el);
+    })(btns[i]);
+  }
+}
+
+if (typeof nativeBridge !== "undefined" && nativeBridge.registerClientParamsCallback) {
+  nativeBridge.registerClientParamsCallback(render);
+}
+</script>
+</body>
+</html>

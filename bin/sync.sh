@@ -32,6 +32,26 @@ log_debug() {
   echo "$1" >> "$DEBUG_LOG"
 }
 
+# Show a Pillow customDialog and print the clicked button's id on stdout.
+# $1: clientParams JSON (object with title, message, buttons[])
+# Returns empty string on timeout (5 min).
+show_dialog() {
+  rm -f /tmp/hc_dialog_reply
+  lipc-set-prop com.lab126.pillow customDialog "{\"name\":\"../../../../mnt/us/extensions/kindle-hardcover-sync/html/dialog\",\"clientParams\":$1}"
+
+  i=0
+  while [ $i -lt 300 ]; do
+    if [ -f /tmp/hc_dialog_reply ]; then
+      cat /tmp/hc_dialog_reply
+      rm -f /tmp/hc_dialog_reply
+      return 0
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  return 1
+}
+
 on_run() {
     if [ -z "$HC_TOKEN" ]; then
         if [ "$MODE" = "manual" ]; then eips -m "❌ Error: Missing Hardcover API Token!"; fi
@@ -101,13 +121,10 @@ on_run() {
         fi
         
         # Pop up dialog asking to track the new book
-        RATING_JSON='{"id": "hc_ask", "title": "New Book Detected", "message": "Track progress for '"$SHORT_TITLE"' on Hardcover?", "buttons": [{"label": "Yes", "id": "yes"}, {"label": "No", "id": "no"}]}'
-        
-        lipc-set-prop com.lab126.pillow showDialog "$RATING_JSON"
-        lipc-wait-event com.lab126.pillow dialogFinished | head -n 1 > /tmp/hc_ask.log
-        ANS=$(cat /tmp/hc_ask.log | grep -o '"id":"[a-z]*"' | awk -F'"' '{print $4}')
-        
-        if [ "$ANS" = "no" ]; then
+        ASK_PARAMS='{"title":"New Book Detected","message":"Track progress for '"$SHORT_TITLE"' on Hardcover?","buttons":[{"label":"Yes","id":"yes"},{"label":"No","id":"no"}]}'
+        ANS=$(show_dialog "$ASK_PARAMS")
+
+        if [ "$ANS" != "yes" ]; then
             # Cache it as IGNORE so we never ask again
             echo "$ASIN|IGNORE|IGNORE|0" >> "$CACHE_FILE"
             return 0
@@ -205,14 +222,10 @@ EOF
         if [ "$KINDLE_TITLE_LOWER" = "$HC_TITLE_LOWER" ]; then CONFIDENT=1; fi
 
         if [ "$CONFIDENT" -eq 0 ]; then
-            # We use Pillow dialog instead of fbink for confirmation now
-            CONFIRM_JSON='{"id": "hc_confirm", "title": "Low Confidence Match", "message": "Kindle says: '$SHORT_TITLE'\nHardcover says: '$HC_TITLE'\n\nIs this correct?", "buttons": [{"label": "Yes", "id": "yes"}, {"label": "No", "id": "no"}]}'
-            
-            lipc-set-prop com.lab126.pillow showDialog "$CONFIRM_JSON"
-            lipc-wait-event com.lab126.pillow dialogFinished | head -n 1 > /tmp/hc_confirm.log
-            CONFIRM_ANS=$(cat /tmp/hc_confirm.log | grep -o '"id":"[a-z]*"' | awk -F'"' '{print $4}')
-            
-            if [ "$CONFIRM_ANS" = "no" ] || [ -z "$CONFIRM_ANS" ]; then
+            CONFIRM_PARAMS='{"title":"Low Confidence Match","message":"Kindle says: '$SHORT_TITLE'\nHardcover says: '$HC_TITLE'\n\nIs this correct?","buttons":[{"label":"Yes","id":"yes"},{"label":"No","id":"no"}]}'
+            CONFIRM_ANS=$(show_dialog "$CONFIRM_PARAMS")
+
+            if [ "$CONFIRM_ANS" != "yes" ]; then
                 if [ "$MODE" = "manual" ]; then eips -m "Cancelled."; fi
                 return 1
             fi
@@ -237,12 +250,9 @@ EOF
     if [ "$INT_PROGRESS" -ge 99 ]; then
         STATUS_ID=3 # Read
         
-        RATING_JSON='{"id": "hc_rating", "title": "Book Finished!", "message": "What is your Hardcover star rating?", "buttons": [{"label": "1", "id": "r1"}, {"label": "2", "id": "r2"}, {"label": "3", "id": "r3"}, {"label": "4", "id": "r4"}, {"label": "5", "id": "r5"}, {"label": "Skip", "id": "r_skip"}]}'
-        
-        lipc-set-prop com.lab126.pillow showDialog "$RATING_JSON"
-        lipc-wait-event com.lab126.pillow dialogFinished | head -n 1 > /tmp/hc_rating.log
-        
-        RATING_VAL=$(cat /tmp/hc_rating.log | grep -o 'r[1-5]' | head -n 1 | sed 's/r//')
+        RATING_PARAMS='{"title":"Book Finished!","message":"What is your Hardcover star rating?","buttons":[{"label":"1","id":"r1"},{"label":"2","id":"r2"},{"label":"3","id":"r3"},{"label":"4","id":"r4"},{"label":"5","id":"r5"},{"label":"Skip","id":"r_skip"}]}'
+        RATING_ANS=$(show_dialog "$RATING_PARAMS")
+        RATING_VAL=$(echo "$RATING_ANS" | sed -n 's/^r\([1-5]\)$/\1/p')
         if [ -n "$RATING_VAL" ]; then
             RATING_MUTATION=", rating: $RATING_VAL"
             if [ "$MODE" = "manual" ]; then eips -m "⭐ Rating: $RATING_VAL Stars"; fi
