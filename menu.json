@@ -3,8 +3,8 @@
     {
       "name": "Sync Current Book Now",
       "priority": 1,
-      "action": "bin/sync.sh",
-      "params": "manual"
+      "action": "/bin/sh",
+      "params": "bin/sync.sh manual"
     },
     {
       "name": "Auto-Sync Settings",
@@ -13,15 +13,15 @@
         {
           "name": "Start Auto-Sync Daemon",
           "priority": 1,
-          "action": "bin/daemon.sh",
-          "params": "start",
+          "action": "/bin/sh",
+          "params": "bin/daemon.sh start",
           "refresh": true
         },
         {
           "name": "Stop Auto-Sync Daemon",
           "priority": 2,
-          "action": "bin/daemon.sh",
-          "params": "stop",
+          "action": "/bin/sh",
+          "params": "bin/daemon.sh stop",
           "refresh": true
         }
       ]
@@ -29,12 +29,14 @@
     {
       "name": "Clear Hardcover Book Cache",
       "priority": 3,
-      "action": "bin/clear_cache.sh"
+      "action": "/bin/sh",
+      "params": "bin/clear_cache.sh"
     },
     {
       "name": "Test Dialog",
       "priority": 4,
-      "action": "bin/test_dialog.sh"
+      "action": "/bin/sh",
+      "params": "bin/test_dialog.sh"
     }
   ]
 }
