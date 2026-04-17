@@ -4,14 +4,8 @@ DIR="$( cd "$( dirname "$0" )/.." && pwd )"
 LOG="$DIR/test_dialog.log"
 LIPC_SET=/usr/bin/lipc-set-prop
 EIPS=/usr/sbin/eips
-MSGLOG=/var/log/messages
 PILLOW_DIR=/usr/share/webkit-1.0/pillow
-
-capture_msg_tail() {
-  echo "--- msg tail: $1 ---" >> "$LOG"
-  tail -n 30 "$MSGLOG" 2>/dev/null >> "$LOG"
-  echo "--- end ---" >> "$LOG"
-}
+SRC_HTML_DIR=/mnt/us/extensions/kindle-hardcover-sync/html
 
 $EIPS -m "Test running in 4s..."
 (
@@ -22,56 +16,39 @@ $EIPS -m "Test running in 4s..."
     echo "Test started: $(date)"
   } >> "$LOG"
 
-  capture_msg_tail "before tests"
+  # Symlink both our dialog AND the minimal hello.html
+  mntroot rw >> "$LOG" 2>&1
+  rm -f "$PILLOW_DIR/hc_hello.html" "$PILLOW_DIR/hc_dialog.html"
+  ln -sf "$SRC_HTML_DIR/hello.html" "$PILLOW_DIR/hc_hello.html"
+  ln -sf "$SRC_HTML_DIR/dialog.html" "$PILLOW_DIR/hc_dialog.html"
+  echo "symlinks:" >> "$LOG"
+  ls -la "$PILLOW_DIR/hc_hello.html" "$PILLOW_DIR/hc_dialog.html" >> "$LOG" 2>&1
+  mntroot ro >> "$LOG" 2>&1
 
-  # Attempt 1: trigger Amazon's OWN sample_custom_dialog — if this doesn't render,
-  # customDialog is dead on this firmware regardless of our HTML.
+  # A1: trigger the dead-simple hello.html
   echo "" >> "$LOG"
-  echo "### A1: customDialog name=sample_custom_dialog (Amazon's own sample) ###" >> "$LOG"
+  echo "### A1: customDialog name=hc_hello (minimal HTML with visible text) ###" >> "$LOG"
   $LIPC_SET com.lab126.pillow customDialog \
-    '{"name":"sample_custom_dialog","clientParams":{}}' \
-    >> "$LOG" 2>&1
+    '{"name":"hc_hello","clientParams":{}}' >> "$LOG" 2>&1
   echo "exit: $?" >> "$LOG"
-  sleep 5
-  capture_msg_tail "after A1"
+  sleep 6
 
-  # Attempt 2: trigger the light_dialog (another stock dialog)
+  # Dump the relevant Amazon JS files so we can copy their pattern
   echo "" >> "$LOG"
-  echo "### A2: customDialog name=light_dialog ###" >> "$LOG"
-  $LIPC_SET com.lab126.pillow customDialog \
-    '{"name":"light_dialog","clientParams":{}}' \
-    >> "$LOG" 2>&1
-  echo "exit: $?" >> "$LOG"
-  sleep 5
-  capture_msg_tail "after A2"
-
-  # Attempt 3: trigger simple_alert (likely corresponds to pillowAlert)
-  echo "" >> "$LOG"
-  echo "### A3: customDialog name=simple_alert ###" >> "$LOG"
-  $LIPC_SET com.lab126.pillow customDialog \
-    '{"name":"simple_alert","clientParams":{"title":"T","message":"M"}}' \
-    >> "$LOG" 2>&1
-  echo "exit: $?" >> "$LOG"
-  sleep 5
-  capture_msg_tail "after A3"
-
-  # Dump reference HTML contents so we can see how Amazon does it
-  echo "" >> "$LOG"
-  echo "### sample_custom_dialog.html ###" >> "$LOG"
-  cat "$PILLOW_DIR/sample_custom_dialog.html" >> "$LOG" 2>&1
+  echo "### javascripts/pillow.js (first 200 lines) ###" >> "$LOG"
+  head -n 200 "$PILLOW_DIR/javascripts/pillow.js" >> "$LOG" 2>&1
 
   echo "" >> "$LOG"
-  echo "### simple_alert.html ###" >> "$LOG"
-  cat "$PILLOW_DIR/simple_alert.html" >> "$LOG" 2>&1
+  echo "### javascripts/window_title.js ###" >> "$LOG"
+  cat "$PILLOW_DIR/javascripts/window_title.js" >> "$LOG" 2>&1
 
   echo "" >> "$LOG"
-  echo "### light_dialog.html ###" >> "$LOG"
-  cat "$PILLOW_DIR/light_dialog.html" >> "$LOG" 2>&1
+  echo "### javascripts/client_params_handler.js ###" >> "$LOG"
+  cat "$PILLOW_DIR/javascripts/client_params_handler.js" >> "$LOG" 2>&1
 
-  # Also dump javascripts/ listing and sample JS if present
   echo "" >> "$LOG"
-  echo "### javascripts/ listing ###" >> "$LOG"
-  ls -la "$PILLOW_DIR/javascripts/" 2>&1 | head -n 50 >> "$LOG"
+  echo "### javascripts/sample_custom_dialog.js ###" >> "$LOG"
+  cat "$PILLOW_DIR/javascripts/sample_custom_dialog.js" >> "$LOG" 2>&1
 
   echo "" >> "$LOG"
   echo "Test complete at $(date)" >> "$LOG"
