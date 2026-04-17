@@ -37,6 +37,12 @@
       "priority": 4,
       "action": "/bin/sh",
       "params": "bin/test_dialog.sh"
+    },
+    {
+      "name": "Dismiss Stuck Dialog",
+      "priority": 5,
+      "action": "/bin/sh",
+      "params": "bin/dismiss.sh"
     }
   ]
 }
