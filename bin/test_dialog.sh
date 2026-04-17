@@ -16,39 +16,43 @@ $EIPS -m "Test running in 4s..."
     echo "Test started: $(date)"
   } >> "$LOG"
 
-  # Symlink both our dialog AND the minimal hello.html
   mntroot rw >> "$LOG" 2>&1
   rm -f "$PILLOW_DIR/hc_hello.html" "$PILLOW_DIR/hc_dialog.html"
   ln -sf "$SRC_HTML_DIR/hello.html" "$PILLOW_DIR/hc_hello.html"
   ln -sf "$SRC_HTML_DIR/dialog.html" "$PILLOW_DIR/hc_dialog.html"
-  echo "symlinks:" >> "$LOG"
   ls -la "$PILLOW_DIR/hc_hello.html" "$PILLOW_DIR/hc_dialog.html" >> "$LOG" 2>&1
   mntroot ro >> "$LOG" 2>&1
 
-  # A1: trigger the dead-simple hello.html
+  # Test 1: hello.html — should show HELLO KYLE, auto-dismiss in 15s
   echo "" >> "$LOG"
-  echo "### A1: customDialog name=hc_hello (minimal HTML with visible text) ###" >> "$LOG"
-  $LIPC_SET com.lab126.pillow customDialog \
-    '{"name":"hc_hello","clientParams":{}}' >> "$LOG" 2>&1
+  echo "### T1: hc_hello (should render and self-dismiss) ###" >> "$LOG"
+  $LIPC_SET com.lab126.pillow customDialog '{"name":"hc_hello","clientParams":{}}' >> "$LOG" 2>&1
   echo "exit: $?" >> "$LOG"
-  sleep 6
 
-  # Dump the relevant Amazon JS files so we can copy their pattern
-  echo "" >> "$LOG"
-  echo "### javascripts/pillow.js (first 200 lines) ###" >> "$LOG"
-  head -n 200 "$PILLOW_DIR/javascripts/pillow.js" >> "$LOG" 2>&1
+  # Wait for hello to dismiss itself
+  sleep 18
 
+  # Test 2: dialog.html with real clientParams — should show buttons, capture reply
   echo "" >> "$LOG"
-  echo "### javascripts/window_title.js ###" >> "$LOG"
-  cat "$PILLOW_DIR/javascripts/window_title.js" >> "$LOG" 2>&1
+  echo "### T2: hc_dialog (with clientParams, wait for tap) ###" >> "$LOG"
+  rm -f /tmp/hc_dialog_reply
+  $LIPC_SET com.lab126.pillow customDialog \
+    '{"name":"hc_dialog","clientParams":{"title":"Dialog Test","message":"Tap A or B to test the reply channel.","buttons":[{"label":"A","id":"answer_a"},{"label":"B","id":"answer_b"}]}}' \
+    >> "$LOG" 2>&1
+  echo "exit: $?" >> "$LOG"
 
-  echo "" >> "$LOG"
-  echo "### javascripts/client_params_handler.js ###" >> "$LOG"
-  cat "$PILLOW_DIR/javascripts/client_params_handler.js" >> "$LOG" 2>&1
-
-  echo "" >> "$LOG"
-  echo "### javascripts/sample_custom_dialog.js ###" >> "$LOG"
-  cat "$PILLOW_DIR/javascripts/sample_custom_dialog.js" >> "$LOG" 2>&1
+  # Poll for reply
+  i=0
+  while [ $i -lt 30 ]; do
+    if [ -f /tmp/hc_dialog_reply ]; then
+      echo "Reply: $(cat /tmp/hc_dialog_reply)" >> "$LOG"
+      rm -f /tmp/hc_dialog_reply
+      break
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  [ $i -ge 30 ] && echo "Dialog reply timed out (no tap or reply channel broken)" >> "$LOG"
 
   echo "" >> "$LOG"
   echo "Test complete at $(date)" >> "$LOG"
