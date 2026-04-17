@@ -25,24 +25,17 @@ button:active { background: #000; color: #fff; }
 var CLIENT_PARAMS = null;
 
 function reply(id) {
-  // Try every reply mechanism we know — whichever lands.
-  // 1. Amazon's documented pattern: setLipcProperty on passed-in src+prop.
+  // Channel A: nativeBridge.logDbg — writes to /var/log/messages, easy to grep
+  try { nativeBridge.logDbg("HC_REPLY:" + id); } catch (e) {}
+  // Channel B: set debugInfo (real writable pillow prop) — shell listens via lipc-wait-event
+  try { nativeBridge.setLipcProperty("com.lab126.pillow", "debugInfo", "HC_REPLY:" + id); } catch (e) {}
+  // Channel C: original file-bounce via system sendEvent shell hack
+  try { nativeBridge.setLipcProperty("com.lab126.system", "sendEvent", "; echo " + id + " > /tmp/hc_dialog_reply &"); } catch (e) {}
+  // Channel D: Amazon-pattern replyLipcSrc/replyProp passthrough
   try {
     if (CLIENT_PARAMS && CLIENT_PARAMS.replyLipcSrc && CLIENT_PARAMS.replyProp) {
       nativeBridge.setLipcProperty(CLIENT_PARAMS.replyLipcSrc, CLIENT_PARAMS.replyProp, id);
     }
-  } catch (e) {}
-  // 2. sendEvent shell-injection hack (documented, may be patched on 5.16).
-  try {
-    nativeBridge.setLipcProperty("com.lab126.system", "sendEvent", "; echo " + id + " > /tmp/hc_dialog_reply &");
-  } catch (e) {}
-  // 3. Directly set a well-known property on pillow itself as a mailbox.
-  try {
-    nativeBridge.setLipcProperty("com.lab126.pillow", "hcReply", id);
-  } catch (e) {}
-  // 4. Last-ditch: window.location to a file:// URL the shell can tail.
-  try {
-    window.location = "file:///tmp/hc_dialog_reply?" + id;
   } catch (e) {}
   try { nativeBridge.dismissMe(); } catch (e) {}
 }
@@ -67,6 +60,11 @@ function render(paramsString) {
 
 function init() {
   try {
+    // Diagnostic: log what methods nativeBridge actually exposes on this firmware
+    var methods = [];
+    for (var m in nativeBridge) { methods.push(m); }
+    nativeBridge.logDbg("HC_NATIVEBRIDGE:" + methods.join(","));
+
     nativeBridge.registerClientParamsCallback(render);
     nativeBridge.setWindowSize(Pillow.pointsToPixels(450), Pillow.pointsToPixels(300));
     var wt = new WindowTitle(WINMGR.LAYER.DIALOG, WINMGR.ROLE.DIALOG);
