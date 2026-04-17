@@ -22,27 +22,21 @@ button:active { background: #000; color: #fff; }
 <div class="message" id="message">Loading...</div>
 <div class="buttons" id="buttons"></div>
 <script>
-var CLIENT_PARAMS = null;
+var WT = null;
 
 function reply(id) {
-  // Channel A: nativeBridge.logDbg — writes to /var/log/messages, easy to grep
-  try { nativeBridge.logDbg("HC_REPLY:" + id); } catch (e) {}
-  // Channel B: set debugInfo (real writable pillow prop) — shell listens via lipc-wait-event
-  try { nativeBridge.setLipcProperty("com.lab126.pillow", "debugInfo", "HC_REPLY:" + id); } catch (e) {}
-  // Channel C: original file-bounce via system sendEvent shell hack
-  try { nativeBridge.setLipcProperty("com.lab126.system", "sendEvent", "; echo " + id + " > /tmp/hc_dialog_reply &"); } catch (e) {}
-  // Channel D: Amazon-pattern replyLipcSrc/replyProp passthrough
-  try {
-    if (CLIENT_PARAMS && CLIENT_PARAMS.replyLipcSrc && CLIENT_PARAMS.replyProp) {
-      nativeBridge.setLipcProperty(CLIENT_PARAMS.replyLipcSrc, CLIENT_PARAMS.replyProp, id);
-    }
-  } catch (e) {}
-  try { nativeBridge.dismissMe(); } catch (e) {}
+  // Channel 1: WindowTitle.addParam — winmgr logs the new title containing HCR:<id>
+  try { if (WT) WT.addParam("HCR", id); } catch (e) {}
+  // Channel 2: nativeBridge.setWindowTitle directly — also routed through winmgr
+  try { nativeBridge.setWindowTitle("HCREPLY_" + id + "_"); } catch (e) {}
+  // Channel 3: expose on window for interrogatePillow fallback
+  try { window.hcReply = id; } catch (e) {}
+  // Dismiss after a short delay so shell can interrogate if needed
+  setTimeout(function () { try { nativeBridge.dismissMe(); } catch (e) {} }, 800);
 }
 
 function render(paramsString) {
   var p; try { p = JSON.parse(paramsString); } catch (e) { return; }
-  CLIENT_PARAMS = p;
   if (p.title) document.getElementById("title").textContent = p.title;
   if (p.message !== undefined) document.getElementById("message").textContent = p.message;
   var btnDiv = document.getElementById("buttons");
@@ -60,15 +54,10 @@ function render(paramsString) {
 
 function init() {
   try {
-    // Diagnostic: log what methods nativeBridge actually exposes on this firmware
-    var methods = [];
-    for (var m in nativeBridge) { methods.push(m); }
-    nativeBridge.logDbg("HC_NATIVEBRIDGE:" + methods.join(","));
-
     nativeBridge.registerClientParamsCallback(render);
     nativeBridge.setWindowSize(Pillow.pointsToPixels(450), Pillow.pointsToPixels(300));
-    var wt = new WindowTitle(WINMGR.LAYER.DIALOG, WINMGR.ROLE.DIALOG);
-    wt.addParam(WINMGR.KEY.WIN_IS_MODAL, WINMGR.MODALITY.MODAL);
+    WT = new WindowTitle(WINMGR.LAYER.DIALOG, WINMGR.ROLE.DIALOG);
+    WT.addParam(WINMGR.KEY.WIN_IS_MODAL, WINMGR.MODALITY.MODAL);
     nativeBridge.showMe();
   } catch (e) {}
 }
