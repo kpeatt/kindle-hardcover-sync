@@ -6,12 +6,12 @@ LIPC_SET=/usr/bin/lipc-set-prop
 EIPS=/usr/sbin/eips
 MSGLOG=/var/log/messages
 
-SYMLINK=/usr/share/webkit-1.0/pillow/hc_dialog
-SYMLINK_TARGET=/mnt/us/extensions/kindle-hardcover-sync/html
+PILLOW_DIR=/usr/share/webkit-1.0/pillow
+SRC_HTML=/mnt/us/extensions/kindle-hardcover-sync/html/dialog.html
 
 capture_msg_tail() {
-  echo "--- $1 ---" >> "$LOG"
-  grep -iE "pillow|webkit|custom|html" "$MSGLOG" 2>/dev/null | tail -n 20 >> "$LOG"
+  echo "--- msg tail: $1 ---" >> "$LOG"
+  tail -n 50 "$MSGLOG" 2>/dev/null | grep -iE "pillow|webkit|custom|html|dialog|window" >> "$LOG"
   echo "--- end ---" >> "$LOG"
 }
 
@@ -22,59 +22,63 @@ $EIPS -m "Test running in 4s..."
   {
     echo "====================================="
     echo "Test started: $(date)"
-    echo "HTML source: $SYMLINK_TARGET/dialog.html ($([ -f "$SYMLINK_TARGET/dialog.html" ] && echo present || echo MISSING))"
   } >> "$LOG"
 
-  # Step 1: mount rootfs rw
-  echo "" >> "$LOG"
-  echo "--- mntroot rw ---" >> "$LOG"
+  # Install symlinks: top-level file AND directory-based
   mntroot rw >> "$LOG" 2>&1
-  echo "mntroot rw exit: $?" >> "$LOG"
-
-  # Step 2: install/refresh symlink
-  echo "" >> "$LOG"
-  echo "--- symlink setup ---" >> "$LOG"
-  echo "before: $(ls -la "$SYMLINK" 2>&1)" >> "$LOG"
-  rm -rf "$SYMLINK" 2>> "$LOG"
-  ln -sf "$SYMLINK_TARGET" "$SYMLINK" >> "$LOG" 2>&1
-  echo "ln exit: $?" >> "$LOG"
-  echo "after: $(ls -la "$SYMLINK" 2>&1)" >> "$LOG"
-  echo "resolves to dialog.html: $([ -f "$SYMLINK/dialog.html" ] && echo yes || echo no)" >> "$LOG"
-
-  # Step 3: mntroot ro
-  echo "" >> "$LOG"
-  echo "--- mntroot ro ---" >> "$LOG"
+  rm -f "$PILLOW_DIR/hc_dialog.html" "$PILLOW_DIR/hc_dialog"
+  ln -sf "$SRC_HTML" "$PILLOW_DIR/hc_dialog.html"
+  ln -sf "$(dirname "$SRC_HTML")" "$PILLOW_DIR/hc_dialog"
+  echo "symlinks after setup:" >> "$LOG"
+  ls -la "$PILLOW_DIR/hc_dialog" "$PILLOW_DIR/hc_dialog.html" >> "$LOG" 2>&1
   mntroot ro >> "$LOG" 2>&1
-  echo "mntroot ro exit: $?" >> "$LOG"
 
-  capture_msg_tail "before customDialog"
+  # Also crank pillow log level for visibility
+  $LIPC_SET com.lab126.pillow logLevel debug >> "$LOG" 2>&1
+  echo "logLevel set exit: $?" >> "$LOG"
 
-  # Step 4: fire customDialog using non-traversal path via symlink
-  PARAMS='{"name":"hc_dialog/dialog","clientParams":{"title":"Hardcover Sync","message":"If you see this, the symlink route works! Tap a button.","buttons":[{"label":"A","id":"answer_a"},{"label":"B","id":"answer_b"}]}}'
-  {
-    echo ""
-    echo "--- firing customDialog via symlink at $(date) ---"
-    echo "PARAMS: $PARAMS"
-  } >> "$LOG"
-  $LIPC_SET com.lab126.pillow customDialog "$PARAMS" >> "$LOG" 2>&1
-  echo "customDialog exit: $?" >> "$LOG"
+  capture_msg_tail "before tests"
 
-  sleep 3
-  capture_msg_tail "after customDialog"
+  # Attempt 1: customDialog, top-level name (no subdir)
+  echo "" >> "$LOG"
+  echo "### A1: customDialog name=hc_dialog (top-level file) ###" >> "$LOG"
+  $LIPC_SET com.lab126.pillow customDialog \
+    '{"name":"hc_dialog","clientParams":{"title":"Top-Level","message":"A1","buttons":[{"label":"A","id":"a"}]}}' \
+    >> "$LOG" 2>&1
+  echo "exit: $?" >> "$LOG"
+  sleep 4
+  capture_msg_tail "after A1"
 
-  # Wait for reply
-  rm -f /tmp/hc_dialog_reply
-  i=0
-  while [ $i -lt 30 ]; do
-    if [ -f /tmp/hc_dialog_reply ]; then
-      echo "Got reply: $(cat /tmp/hc_dialog_reply)" >> "$LOG"
-      rm -f /tmp/hc_dialog_reply
-      break
-    fi
-    sleep 1
-    i=$((i + 1))
-  done
-  [ $i -ge 30 ] && echo "No reply received (timeout)" >> "$LOG"
+  # Attempt 2: customDialog, subdir path
+  echo "" >> "$LOG"
+  echo "### A2: customDialog name=hc_dialog/dialog (subdir) ###" >> "$LOG"
+  $LIPC_SET com.lab126.pillow customDialog \
+    '{"name":"hc_dialog/dialog","clientParams":{"title":"Subdir","message":"A2","buttons":[{"label":"A","id":"a"}]}}' \
+    >> "$LOG" 2>&1
+  echo "exit: $?" >> "$LOG"
+  sleep 4
+  capture_msg_tail "after A2"
+
+  # Attempt 3: interrogatePillow injection — ask an existing pillow to show our dialog
+  echo "" >> "$LOG"
+  echo "### A3: interrogatePillow (inject showDialog into default_status_bar) ###" >> "$LOG"
+  $LIPC_SET com.lab126.pillow interrogatePillow \
+    '{"pillowId":"default_status_bar","function":"if(typeof nativeBridge!==\"undefined\"&&nativeBridge.showDialog){nativeBridge.showDialog(\"hc_dialog\",{title:\"Inject\",msg:\"A3\",buttons:[{label:\"A\",id:\"a\"}]});}"}' \
+    >> "$LOG" 2>&1
+  echo "exit: $?" >> "$LOG"
+  sleep 4
+  capture_msg_tail "after A3"
+
+  # Attempt 4: what pillows currently exist — query interrogatePillowHash
+  echo "" >> "$LOG"
+  echo "### A4: interrogatePillowHash (list pillows) ###" >> "$LOG"
+  /usr/bin/lipc-get-prop com.lab126.pillow interrogatePillowHash >> "$LOG" 2>&1
+  echo "exit: $?" >> "$LOG"
+
+  # Attempt 5: list actual pillow dir contents to confirm file placement
+  echo "" >> "$LOG"
+  echo "### A5: /usr/share/webkit-1.0/pillow/ listing ###" >> "$LOG"
+  ls -la "$PILLOW_DIR" 2>&1 | head -n 40 >> "$LOG"
 
   echo "" >> "$LOG"
   echo "Test complete at $(date)" >> "$LOG"
