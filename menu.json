@@ -30,6 +30,11 @@
       "name": "Clear Hardcover Book Cache",
       "priority": 3,
       "action": "bin/clear_cache.sh"
+    },
+    {
+      "name": "Test Dialog",
+      "priority": 4,
+      "action": "bin/test_dialog.sh"
     }
   ]
 }
