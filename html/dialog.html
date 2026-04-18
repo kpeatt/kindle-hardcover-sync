@@ -22,26 +22,22 @@ button:active { background: #000; color: #fff; }
 <div class="message" id="message">Loading...</div>
 <div class="buttons" id="buttons"></div>
 <script>
-function shout(msg) {
-  // Fire every log method we can think of with the same payload
-  try { nativeBridge.logDbg(msg); } catch (e) {}
-  try { nativeBridge.logWarn(msg); } catch (e) {}
-  try { nativeBridge.logError(msg); } catch (e) {}
-  try { nativeBridge.log(msg); } catch (e) {}
-  try { nativeBridge.debug(msg); } catch (e) {}
-  try { nativeBridge.info(msg); } catch (e) {}
-  try { nativeBridge.warn(msg); } catch (e) {}
-  try { nativeBridge.error(msg); } catch (e) {}
-  try { nativeBridge.logInfo(msg); } catch (e) {}
-  try { console.log(msg); } catch (e) {}
-  try { console.error(msg); } catch (e) {}
-  // As a side-channel: change window title so winmgr might log it
-  try { nativeBridge.setWindowTitle(msg); } catch (e) {}
+function writeTo(src, prop, val) {
+  try { nativeBridge.setLipcProperty(src, prop, val); } catch (e) {}
 }
 
 function reply(id) {
-  shout("HCSYNC_REPLY_" + id + "_END");
-  setTimeout(function () { try { nativeBridge.dismissMe(); } catch (e) {} }, 1200);
+  // Amazon's own dialog writes to com.lab126.keyboard — so it must be reachable.
+  // Pack reply as hc:<id>:0 so shell can parse.
+  var payload = "hc:" + id + ":0";
+  writeTo("com.lab126.keyboard", "open",  payload);
+  writeTo("com.lab126.keyboard", "close", payload);
+  // Also try these in case keyboard is gated too
+  writeTo("com.lab126.browser", "data",   payload);
+  writeTo("com.lab126.winmgr",  "data",   payload);
+  writeTo("com.lab126.pillow",  "debugInfo", payload);
+
+  setTimeout(function () { try { nativeBridge.dismissMe(); } catch (e) {} }, 800);
 }
 
 function render(paramsString) {
@@ -63,19 +59,12 @@ function render(paramsString) {
 
 function init() {
   try {
-    // Dump all nativeBridge methods so we know what's actually available
-    var methods = [];
-    for (var m in nativeBridge) methods.push(m);
-    shout("HCSYNC_METHODS_" + methods.join(",") + "_END");
-
     nativeBridge.registerClientParamsCallback(render);
     nativeBridge.setWindowSize(Pillow.pointsToPixels(450), Pillow.pointsToPixels(300));
     var wt = new WindowTitle(WINMGR.LAYER.DIALOG, WINMGR.ROLE.DIALOG);
     wt.addParam(WINMGR.KEY.WIN_IS_MODAL, WINMGR.MODALITY.MODAL);
     nativeBridge.showMe();
-  } catch (e) {
-    try { shout("HCSYNC_INIT_ERROR_" + e.message); } catch (ee) {}
-  }
+  } catch (e) {}
 }
 </script>
 </body>
