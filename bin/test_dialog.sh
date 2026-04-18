@@ -9,7 +9,7 @@ PILLOW_DIR=/usr/share/webkit-1.0/pillow
 SRC_HTML_DIR=/mnt/us/extensions/kindle-hardcover-sync/html
 MSGLOG=/var/log/messages
 
-$EIPS -m "Tap B (middle) when dialog opens"
+$EIPS -m "Tap A when dialog opens"
 (
   sleep 4
 
@@ -23,47 +23,58 @@ $EIPS -m "Tap B (middle) when dialog opens"
   ln -sf "$SRC_HTML_DIR/dialog.html" "$PILLOW_DIR/hc_dialog.html"
   mntroot ro >> "$LOG" 2>&1
 
-  MSG_START_BYTES=$(wc -c < "$MSGLOG" 2>/dev/null || echo 0)
+  echo "### interrogatePillowHash BEFORE firing ###" >> "$LOG"
+  $LIPC_GET -h com.lab126.pillow interrogatePillowHash >> "$LOG" 2>&1
+  echo "---" >> "$LOG"
 
-  echo "### Firing hc_dialog (A B C) — tap B ###" >> "$LOG"
+  echo "### Firing hc_dialog — tap A ###" >> "$LOG"
   $LIPC_SET com.lab126.pillow customDialog \
-    '{"name":"hc_dialog","clientParams":{"title":"Title Reply Test","message":"Tap B (middle).","buttons":[{"label":"A","id":"a"},{"label":"B","id":"b"},{"label":"C","id":"c"}]}}' \
+    '{"name":"hc_dialog","clientParams":{"title":"Interrogate Test","message":"Tap A.","buttons":[{"label":"A","id":"a"},{"label":"B","id":"b"}]}}' \
     >> "$LOG" 2>&1
-  echo "exit: $?" >> "$LOG"
+
+  # Wait briefly for dialog to initialize
+  sleep 3
+
+  # Pre-interrogate: test if we can read ANYTHING from the pillow
+  echo "" >> "$LOG"
+  echo "### interrogatePillow: window.location.href ###" >> "$LOG"
+  $LIPC_SET com.lab126.pillow interrogatePillow \
+    '{"pillowId":"hc-dialog","function":"return window.location.href;"}' >> "$LOG" 2>&1
+  sleep 1
+  echo "hash readback:" >> "$LOG"
+  $LIPC_GET -h com.lab126.pillow interrogatePillowHash >> "$LOG" 2>&1
+  echo "---" >> "$LOG"
+
+  echo "" >> "$LOG"
+  echo "### interrogatePillow: simple literal ###" >> "$LOG"
+  $LIPC_SET com.lab126.pillow interrogatePillow \
+    '{"pillowId":"hc-dialog","function":"return 42;"}' >> "$LOG" 2>&1
+  sleep 1
+  echo "hash readback:" >> "$LOG"
+  $LIPC_GET -h com.lab126.pillow interrogatePillowHash >> "$LOG" 2>&1
+  echo "---" >> "$LOG"
+
+  echo "" >> "$LOG"
+  echo "### Poll for hcReply via interrogate ###" >> "$LOG"
 
   REPLY=""
   i=0
-  while [ $i -lt 20 ]; do
-    # Check messages for HCR:<id> (WindowTitle.addParam) or HCREPLY_<id>_ (setWindowTitle)
-    REPLY=$(tail -c +$((MSG_START_BYTES + 1)) "$MSGLOG" 2>/dev/null \
-      | grep -oE "HCR:[a-z]+|HCREPLY_[a-z]+_" | head -n 1)
-    [ -n "$REPLY" ] && break
-
-    # Fallback: interrogate the pillow for window.hcReply
+  while [ $i -lt 25 ]; do
     $LIPC_SET com.lab126.pillow interrogatePillow \
-      '{"pillowId":"hc-dialog","function":"return (window.hcReply||null);"}' > /dev/null 2>&1
-    INTERROGATE=$($LIPC_GET -h com.lab126.pillow interrogatePillowHash 2>/dev/null | head -n 3 | tr '\n' ' ')
-    if [ -n "$INTERROGATE" ] && echo "$INTERROGATE" | grep -q '"'; then
-      REPLY="interrogate:$INTERROGATE"
+      '{"pillowId":"hc-dialog","function":"return (window.hcReply || \"\");"}' >/dev/null 2>&1
+    sleep 1
+    H=$($LIPC_GET -h com.lab126.pillow interrogatePillowHash 2>/dev/null)
+    echo "poll $i: $H" >> "$LOG"
+    # Look for a non-empty reply
+    if echo "$H" | grep -qE '(a|b|c|yes|no)"[^"]*$'; then
+      REPLY="$H"
       break
     fi
-
-    sleep 1
     i=$((i + 1))
-    echo "poll $i/20 ..." >> "$LOG"
   done
 
-  if [ -n "$REPLY" ]; then
-    echo "REPLY: $REPLY" >> "$LOG"
-  else
-    echo "No reply via any channel" >> "$LOG"
-  fi
-
   echo "" >> "$LOG"
-  echo "### relevant /var/log/messages lines ###" >> "$LOG"
-  tail -c +$((MSG_START_BYTES + 1)) "$MSGLOG" 2>/dev/null \
-    | grep -iE "HCR|HCREPLY|winmgr.*hc-dialog|pillow.*hc_dialog|interrogate" \
-    | head -n 40 >> "$LOG"
+  echo "FINAL REPLY: ${REPLY:-NONE}" >> "$LOG"
 
   echo "" >> "$LOG"
   echo "Test complete at $(date)" >> "$LOG"
