@@ -22,17 +22,26 @@ button:active { background: #000; color: #fff; }
 <div class="message" id="message">Loading...</div>
 <div class="buttons" id="buttons"></div>
 <script>
-var WT = null;
+function shout(msg) {
+  // Fire every log method we can think of with the same payload
+  try { nativeBridge.logDbg(msg); } catch (e) {}
+  try { nativeBridge.logWarn(msg); } catch (e) {}
+  try { nativeBridge.logError(msg); } catch (e) {}
+  try { nativeBridge.log(msg); } catch (e) {}
+  try { nativeBridge.debug(msg); } catch (e) {}
+  try { nativeBridge.info(msg); } catch (e) {}
+  try { nativeBridge.warn(msg); } catch (e) {}
+  try { nativeBridge.error(msg); } catch (e) {}
+  try { nativeBridge.logInfo(msg); } catch (e) {}
+  try { console.log(msg); } catch (e) {}
+  try { console.error(msg); } catch (e) {}
+  // As a side-channel: change window title so winmgr might log it
+  try { nativeBridge.setWindowTitle(msg); } catch (e) {}
+}
 
 function reply(id) {
-  // Channel 1: WindowTitle.addParam — winmgr logs the new title containing HCR:<id>
-  try { if (WT) WT.addParam("HCR", id); } catch (e) {}
-  // Channel 2: nativeBridge.setWindowTitle directly — also routed through winmgr
-  try { nativeBridge.setWindowTitle("HCREPLY_" + id + "_"); } catch (e) {}
-  // Channel 3: expose on window for interrogatePillow fallback
-  try { window.hcReply = id; } catch (e) {}
-  // Dismiss after a short delay so shell can interrogate if needed
-  setTimeout(function () { try { nativeBridge.dismissMe(); } catch (e) {} }, 800);
+  shout("HCSYNC_REPLY_" + id + "_END");
+  setTimeout(function () { try { nativeBridge.dismissMe(); } catch (e) {} }, 1200);
 }
 
 function render(paramsString) {
@@ -54,12 +63,19 @@ function render(paramsString) {
 
 function init() {
   try {
+    // Dump all nativeBridge methods so we know what's actually available
+    var methods = [];
+    for (var m in nativeBridge) methods.push(m);
+    shout("HCSYNC_METHODS_" + methods.join(",") + "_END");
+
     nativeBridge.registerClientParamsCallback(render);
     nativeBridge.setWindowSize(Pillow.pointsToPixels(450), Pillow.pointsToPixels(300));
-    WT = new WindowTitle(WINMGR.LAYER.DIALOG, WINMGR.ROLE.DIALOG);
-    WT.addParam(WINMGR.KEY.WIN_IS_MODAL, WINMGR.MODALITY.MODAL);
+    var wt = new WindowTitle(WINMGR.LAYER.DIALOG, WINMGR.ROLE.DIALOG);
+    wt.addParam(WINMGR.KEY.WIN_IS_MODAL, WINMGR.MODALITY.MODAL);
     nativeBridge.showMe();
-  } catch (e) {}
+  } catch (e) {
+    try { shout("HCSYNC_INIT_ERROR_" + e.message); } catch (ee) {}
+  }
 }
 </script>
 </body>
